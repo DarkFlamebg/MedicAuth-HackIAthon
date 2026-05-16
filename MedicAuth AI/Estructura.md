@@ -266,15 +266,3 @@ Pasos del Agente:
 - ✅ README épico
 
 ---
-
-## 🎬 ¿Empezamos?
-
-Puedo generarte ahora mismo:
-
-1. **📦 Setup completo del proyecto** (ambos front y back)
-2. **🐍 Backend FastAPI** con estructura profesional
-3. **⚛️ Frontend Vite + React** con Tailwind
-4. **🤖 Agente de IA base** con Claude
-5. **📓 Integración con Notion**
-
-¿Quieres que genere todo el código inicial para que empieces a trabajar de inmediato? 🚀
