@@ -64,6 +64,14 @@ class TipoPlan(str, Enum):
     BASICO = "Básico"
     PREMIUM = "Premium"
     VIP = "VIP"
+    AMBULATORIO = "Ambulatorio"
+    HOSPITALARIO = "Hospitalario"
+    MATERNIDAD = "Maternidad"
+    DENTAL = "Dental"
+    INTERNACIONAL = "Internacional"
+    CORPORATIVO = "Corporativo"
+    FAMILIAR = "Familiar"
+
 
 class Poliza(BaseModel):
     """Modelo de póliza de seguro"""
