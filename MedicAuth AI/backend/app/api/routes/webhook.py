@@ -10,9 +10,14 @@ import time
 
 from app.services.notion_service import notion_service
 from app.services.ai_agent import ai_agent
+from app.utils.validators import validar_solicitud_completa
 
 router = APIRouter()
 
+
+# ------------------------------------------------------------------
+# Extracción de page_id
+# ------------------------------------------------------------------
 
 def _extract_page_id(payload: Dict[str, Any]) -> Optional[str]:
     """
@@ -45,7 +50,6 @@ def _extract_page_id(payload: Dict[str, Any]) -> Optional[str]:
                 return clean
 
     # 2. Payload de automatización nativa de Notion
-    # {"data": {"object": "page", "id": "362e23da-b2f0-800c-..."}}
     data = payload.get("data", {})
     if isinstance(data, dict):
         obj_id = data.get("id") or data.get("page_id")
@@ -64,24 +68,26 @@ def _extract_page_id(payload: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# ------------------------------------------------------------------
+# Endpoints
+# ------------------------------------------------------------------
+
 @router.post("/notion")
 async def handle_notion_webhook(
     payload: Dict[str, Any],
     background_tasks: BackgroundTasks
 ):
     """
-    Recibe webhook de Notion cuando se crea/actualiza una solicitud
+    Recibe webhook de Notion cuando se crea/actualiza una solicitud.
 
     Flujo:
-    1. Recibe evento de Notion
-    2. Extrae page_id del payload (soporta IDs directos y URLs completas)
-    3. Procesa en background: busca póliza → analiza con IA → actualiza Notion
+    1. Extrae page_id del payload (soporta IDs directos y URLs completas)
+    2. Procesa en background: valida → busca póliza → analiza con IA → actualiza Notion
     """
     try:
         print(f"📨 Webhook recibido de Notion")
 
         page_id = _extract_page_id(payload)
-
         if not page_id:
             raise HTTPException(status_code=400, detail="page_id no encontrado en payload")
 
@@ -105,7 +111,6 @@ async def trigger_from_notion_url(
 ):
     """
     Dispara el procesamiento pasando directamente la URL de Notion.
-    Útil para pruebas manuales o reenvíos.
     Body: {"url": "https://www.notion.so/REQ-002-362e23da..."}
     """
     url = body.get("url", "")
@@ -113,12 +118,8 @@ async def trigger_from_notion_url(
         raise HTTPException(status_code=400, detail="Campo 'url' requerido")
 
     page_id = _extract_page_id({"page_id": url})
-
     if not page_id:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se pudo extraer page_id de: {url}"
-        )
+        raise HTTPException(status_code=400, detail=f"No se pudo extraer page_id de: {url}")
 
     background_tasks.add_task(process_authorization_request, page_id)
 
@@ -129,13 +130,26 @@ async def trigger_from_notion_url(
     }
 
 
+@router.get("/test")
+async def test_webhook():
+    return {
+        "status": "ok",
+        "message": "Webhook funcionando",
+        "notion_configured": bool(notion_service.solicitudes_db_id)
+    }
+
+
+# ------------------------------------------------------------------
+# Procesamiento principal
+# ------------------------------------------------------------------
+
 async def process_authorization_request(page_id: str):
     """Procesa una solicitud de autorización completa"""
     start_time = time.time()
 
     try:
         print(f"🔄 Procesando solicitud {page_id[:8]}...")
-        
+
         # 1. Obtener solicitud de Notion
         page_data = await notion_service.get_authorization_by_id(page_id)
         if not page_data:
@@ -150,14 +164,41 @@ async def process_authorization_request(page_id: str):
 
         print(f"📋 Solicitud: {solicitud.paciente_nombre} - {solicitud.tipo_cirugia}")
 
-        # 3. Buscar póliza
+        # 3. ── VALIDACIÓN ROBUSTA ──────────────────────────────────────
+        validacion = validar_solicitud_completa(solicitud)
+
+        if validacion.advertencias:
+            for adv in validacion.advertencias:
+                print(f"⚠️  {adv}")
+
+        if not validacion.valido:
+            print(f"❌ Validación fallida: {validacion.errores}")
+            await notion_service.update_authorization_status(
+                page_id=page_id,
+                status="Documentos Faltantes",
+                decision={"error": "Validación de campos fallida", "detalle": validacion.errores},
+                reasoning=(
+                    "La solicitud no pasó la validación automática de campos:\n"
+                    + "\n".join(f"  • {e}" for e in validacion.errores)
+                ),
+                confidence=100,
+                missing_docs=validacion.campos_faltantes_formateados,
+                processing_time=time.time() - start_time
+            )
+            return
+        # ─────────────────────────────────────────────────────────────
+
+        # 4. Buscar póliza
+        # numero_poliza puede ser el page_id UUID de la relación;
+        # get_policy_by_number maneja ambos casos (título o UUID directo)
         poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
         if not poliza_page:
+            print(f"❌ Póliza no encontrada: {solicitud.numero_poliza}")
             await notion_service.update_authorization_status(
                 page_id=page_id,
                 status="Documentos Faltantes",
                 decision={"error": "Póliza no encontrada"},
-                reasoning=f"No se encontró la póliza {solicitud.numero_poliza} en el sistema",
+                reasoning=f"No se encontró la póliza '{solicitud.numero_poliza}' en el sistema.",
                 confidence=100,
                 missing_docs=[f"Validar número de póliza: {solicitud.numero_poliza}"],
                 processing_time=time.time() - start_time
@@ -171,7 +212,20 @@ async def process_authorization_request(page_id: str):
 
         print(f"📄 Póliza encontrada: {poliza.numero_poliza} - {poliza.tipo_plan}")
 
-        # 4. Extraer texto del informe médico PDF (si existe)
+        # 5. Verificar que la póliza esté activa
+        if poliza.estado.lower() != "activa":
+            await notion_service.update_authorization_status(
+                page_id=page_id,
+                status="Rechazado",
+                decision={"error": f"Póliza en estado: {poliza.estado}"},
+                reasoning=f"La póliza {poliza.numero_poliza} no está activa (estado actual: {poliza.estado}).",
+                confidence=100,
+                missing_docs=[],
+                processing_time=time.time() - start_time
+            )
+            return
+
+        # 6. Extraer texto del informe médico PDF (si existe)
         informe_medico_text = None
         if solicitud.informe_medico_url:
             from app.utils.pdf_extractor import pdf_extractor
@@ -184,7 +238,7 @@ async def process_authorization_request(page_id: str):
         else:
             print(f"ℹ️  Solicitud sin informe médico adjunto")
 
-        # 5. Procesar con IA
+        # 7. Procesar con IA
         print(f"🤖 Enviando a agente IA...")
         decision = await ai_agent.process_authorization(
             solicitud=solicitud,
@@ -195,7 +249,7 @@ async def process_authorization_request(page_id: str):
         print(f"{'✅' if decision.aprobado else '❌'} Decisión: {'APROBADO' if decision.aprobado else 'RECHAZADO'}")
         print(f"📊 Confianza: {decision.score_confianza}%")
 
-        # 6. Determinar estado
+        # 8. Determinar estado final
         if decision.aprobado:
             status = "Aprobado"
         elif decision.documentos_faltantes:
@@ -203,7 +257,7 @@ async def process_authorization_request(page_id: str):
         else:
             status = "Rechazado"
 
-        # 7. Actualizar Notion
+        # 9. Actualizar Notion
         await notion_service.update_authorization_status(
             page_id=page_id,
             status=status,
@@ -235,13 +289,3 @@ async def process_authorization_request(page_id: str):
             )
         except Exception:
             pass
-
-
-@router.get("/test")
-async def test_webhook():
-    """Endpoint de prueba"""
-    return {
-        "status": "ok",
-        "message": "Webhook funcionando",
-        "notion_configured": bool(notion_service.solicitudes_db_id)
-    }
