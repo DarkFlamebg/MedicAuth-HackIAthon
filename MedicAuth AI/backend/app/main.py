@@ -14,12 +14,12 @@ from app.api.routes import webhook, authorization, health
 async def lifespan(app: FastAPI):
     """Eventos de inicio y cierre de la aplicación"""
     # Startup
-    print("🚀 Iniciando SurgeryAuth AI...")
-    print(f"📊 Notion DB Solicitudes: {settings.NOTION_SOLICITUDES_DB_ID[:8]}...")
-    print(f"📋 Notion DB Pólizas: {settings.NOTION_POLIZAS_DB_ID[:8]}...")
+    print("Iniciando SurgeryAuth AI...")
+    print(f"Notion DB Solicitudes: {settings.NOTION_SOLICITUDES_DB_ID[:8]}...")
+    print(f"Notion DB Pólizas: {settings.NOTION_POLIZAS_DB_ID[:8]}...")
     yield
     # Shutdown
-    print("👋 Cerrando SurgeryAuth AI...")
+    print("Cerrando SurgeryAuth AI...")
 
 app = FastAPI(
     title="SurgeryAuth AI API",
@@ -45,7 +45,7 @@ app.include_router(authorization.router, prefix="/api/authorization", tags=["Aut
 @app.get("/")
 async def root():
     return {
-        "message": "🏥 SurgeryAuth AI - API activa",
+        "message": "SurgeryAuth AI - API activa",
         "version": "1.0.0",
         "docs": "/docs"
     }
