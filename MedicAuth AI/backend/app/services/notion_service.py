@@ -2,120 +2,74 @@
 Servicio para integración con Notion API
 """
 
-from notion_client import AsyncClient
+from notion_client import Client
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 
 from app.core.config import settings
-from app.models.authorization import SolicitudAutorizacion, Poliza, EstadoSolicitud
-
+from app.models.authorization import SolicitudAutorizacion, Poliza
 
 class NotionService:
     """Cliente para interactuar con Notion"""
-
+    
     def __init__(self):
-        self.client = AsyncClient(auth=settings.NOTION_TOKEN)
+        self.client = Client(auth=settings.NOTION_TOKEN)
         self.solicitudes_db_id = settings.NOTION_SOLICITUDES_DB_ID
         self.polizas_db_id = settings.NOTION_POLIZAS_DB_ID
-
-    # ------------------------------------------------------------------
-    # Helpers de extracción
-    # ------------------------------------------------------------------
-
-    def _extract_text(self, property_obj: Dict[str, Any], key: str = "rich_text") -> str:
-        """Extrae texto de rich_text o title de forma segura"""
-        text_list = property_obj.get(key, []) if property_obj else []
-        if text_list and isinstance(text_list, list):
-            return text_list[0].get("text", {}).get("content", "")
-        return ""
-
-    def _extract_select(self, property_obj: Any, default: str = "") -> str:
-        """Extrae el nombre de un campo select, manejando select: null"""
-        return ((property_obj or {}).get("select") or {}).get("name", default)
-
-    def _extract_date(self, property_obj: Any, default: Optional[str] = None) -> Optional[str]:
-        """Extrae el start de un campo date, manejando date: null"""
-        date_obj = (property_obj or {}).get("date")
-        if date_obj:
-            return date_obj.get("start")
-        return default
-
-    def _extract_number(self, property_obj: Any, default: int = 0) -> int:
-        """Extrae un número de forma segura"""
-        return (property_obj or {}).get("number") or default
-
-    def _build_status_filter(self, status: str) -> Dict[str, Any]:
-        return {"property": "Estado", "select": {"equals": status}}
-
-    # ------------------------------------------------------------------
-    # Queries
-    # ------------------------------------------------------------------
-
+    
     async def get_pending_authorizations(self) -> List[Dict[str, Any]]:
-        return await self.query_authorizations_by_status("Pendiente")
-
-    async def query_authorizations_by_status(self, status: str) -> List[Dict[str, Any]]:
-        """Solicitudes por estado con paginación automática"""
+        """Obtiene todas las solicitudes pendientes"""
         try:
-            results = []
-            cursor = None
-            while True:
-                kwargs = {
-                    "database_id": self.solicitudes_db_id,
-                    "filter": self._build_status_filter(status),
-                    "page_size": 100,
+            response = self.client.databases.query(
+                database_id=self.solicitudes_db_id,
+                filter={
+                    "property": "Estado",
+                    "select": {
+                        "equals": "Pendiente"
+                    }
                 }
-                if cursor:
-                    kwargs["start_cursor"] = cursor
-                response = await self.client.databases.query(**kwargs)
-                results.extend(response.get("results", []))
-                if not response.get("has_more"):
-                    break
-                cursor = response.get("next_cursor")
-            return results
+            )
+            return response.get("results", [])
         except Exception as e:
-            print(f"❌ Error consultando solicitudes [{status}]: {e}")
+            print(f"[ERROR] Error obteniendo solicitudes pendientes: {e}")
             return []
-
+    
     async def get_authorization_by_id(self, page_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene una solicitud específica por ID"""
         try:
-            return await self.client.pages.retrieve(page_id=page_id)
+            page = self.client.pages.retrieve(page_id=page_id)
+            return page
         except Exception as e:
-            print(f"❌ Error obteniendo solicitud {page_id}: {e}")
+            print(f"[ERROR] Error obteniendo solicitud {page_id}: {e}")
             return None
-
+    
     async def get_policy_by_number(self, policy_number: str) -> Optional[Dict[str, Any]]:
-        """
-        Busca póliza por número de título.
-        policy_number puede ser el título (POL-2026-TEST)
-        o un page_id UUID si la relación solo trae el id.
-        Intenta ambas estrategias.
-        """
-        if not policy_number:
-            return None
+        """Busca una póliza por número o por ID de página directo"""
         try:
-            # Estrategia 1: buscar por título (caso normal)
-            response = await self.client.databases.query(
+            clean_id = policy_number.replace("-", "").strip()
+            if len(clean_id) == 32 and all(c in "0123456789abcdef" for c in clean_id):
+                try:
+                    page = self.client.pages.retrieve(page_id=policy_number)
+                    return page
+                except Exception as retrieve_err:
+                    print(f"[WARNING] No se pudo recuperar póliza directamente por ID ({policy_number}): {retrieve_err}")
+            
+            response = self.client.databases.query(
                 database_id=self.polizas_db_id,
-                filter={"property": "Número Póliza", "title": {"equals": policy_number}}
+                filter={
+                    "property": "Número Póliza",
+                    "title": {
+                        "equals": policy_number
+                    }
+                }
             )
             results = response.get("results", [])
-            if results:
-                return results[0]
-
-            # Estrategia 2: si no encontró por título, intentar por page_id directo
-            # (ocurre cuando el campo Número Póliza es una relación y solo tenemos el UUID)
-            if len(policy_number.replace("-", "")) == 32:
-                print(f"⚠️  Buscando póliza por page_id directo: {policy_number[:8]}...")
-                page = await self.client.pages.retrieve(page_id=policy_number)
-                return page if page else None
-
-            return None
+            return results[0] if results else None
         except Exception as e:
-            print(f"❌ Error buscando póliza {policy_number}: {e}")
+            print(f"[ERROR] Error buscando póliza {policy_number}: {e}")
             return None
-
+    
     async def update_authorization_status(
         self,
         page_id: str,
@@ -126,120 +80,138 @@ class NotionService:
         missing_docs: List[str] = None,
         processing_time: float = 0
     ) -> bool:
+        """Actualiza el estado de una solicitud con la decisión de la IA"""
         try:
             properties = {
-                "Estado": {"select": {"name": status}},
-                "Razonamiento": {
-                    "rich_text": [{"text": {"content": reasoning[:2000]}}]
+                "Estado": {
+                    "select": {
+                        "name": status
+                    }
                 },
-                "Score Confianza": {"number": round(confidence, 2)},
-                "Fecha Respuesta": {"date": {"start": datetime.now().isoformat()}},
-                "Tiempo Procesamiento": {"number": round(processing_time, 2)},
+                "Razonamiento": {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": reasoning[:1900]
+                            }
+                        }
+                    ]
+                },
+                "Score Confianza": {
+                    "number": round(confidence, 2)
+                },
+                "Fecha Respuesta": {
+                    "date": {
+                        "start": datetime.now().isoformat()
+                    }
+                },
+                "Tiempo Procesamiento": {
+                    "number": round(processing_time, 2)
+                }
             }
+            
             if decision:
                 properties["Decisión IA"] = {
-                    "rich_text": [{"text": {"content": json.dumps(decision, ensure_ascii=False)[:2000]}}]
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": json.dumps(decision, ensure_ascii=False)[:1900]
+                            }
+                        }
+                    ]
                 }
+            
             if missing_docs:
                 properties["Documentos Faltantes"] = {
-                    "multi_select": [{"name": doc[:99]} for doc in missing_docs[:10]]
+                    "multi_select": [
+                        {"name": doc.replace(",", " -")[:100]} for doc in missing_docs[:10]
+                    ]
                 }
-            await self.client.pages.update(page_id=page_id, properties=properties)
-            print(f"✅ Solicitud {page_id[:8]}... actualizada: {status}")
+            
+            self.client.pages.update(
+                page_id=page_id,
+                properties=properties
+            )
+            
+            print(f"[SUCCESS] Solicitud {page_id[:8]}... actualizada: {status}")
             return True
+            
         except Exception as e:
-            print(f"❌ Error actualizando solicitud {page_id}: {e}")
+            print(f"[ERROR] Error actualizando solicitud {page_id}: {e}")
             return False
-
-    # ------------------------------------------------------------------
-    # Parsers
-    # ------------------------------------------------------------------
-
+    
     def parse_notion_page_to_solicitud(self, page: Dict[str, Any]) -> Optional[SolicitudAutorizacion]:
-        """Convierte una página de Notion a SolicitudAutorizacion"""
+        """Convierte una página de Notion a modelo SolicitudAutorizacion"""
         try:
             props = page.get("properties", {})
-
-            paciente_nombre = self._extract_text(props.get("Paciente Nombre"))
-            cedula          = self._extract_text(props.get("Cédula"))
-            medico          = self._extract_text(props.get("Médico Tratante"))
-            hospital        = self._extract_select(props.get("Hospital"))
-            tipo_cirugia    = self._extract_select(props.get("Tipo Cirugía"))
-            estado          = self._extract_select(props.get("Estado"), default="Pendiente")
-            edad            = self._extract_number(props.get("Edad"))
-
-            # ── Número de póliza ──────────────────────────────────────────
-            # La columna "Número Póliza" en Solicitudes es una RELACIÓN.
-            # Notion devuelve solo el page_id de la póliza relacionada,
-            # NO el texto del título. Guardamos el page_id y en el webhook
-            # lo resolvemos con get_policy_by_number (estrategia 2).
-            poliza_relation = (props.get("Número Póliza") or {}).get("relation", [])
-            numero_poliza   = poliza_relation[0].get("id", "") if poliza_relation else ""
-            # ──────────────────────────────────────────────────────────────
-
-            fecha_inicio_raw = self._extract_date(
-                props.get("Fecha Solicitada"),
-                default=datetime.now().isoformat()
-            )
-
-            files       = (props.get("Informe Médico") or {}).get("files", [])
-            informe_url = None
-            if files:
-                first = files[0]
-                # Archivos subidos directamente a Notion
-                if first.get("type") == "file":
-                    informe_url = first.get("file", {}).get("url")
-                # Archivos vinculados por URL externa
-                elif first.get("type") == "external":
-                    informe_url = first.get("external", {}).get("url")
-
+            id_solicitud = page.get("id", "")
+            
+            titulo = props.get("ID Solicitud", {})
+            id_text = titulo.get("title", [{}])[0].get("text", {}).get("content", "")
+            
+            paciente_nombre = props.get("Paciente Nombre", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
+            cedula = props.get("Cédula", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
+            medico = props.get("Médico Tratante", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
+            hospital = props.get("Hospital", {}).get("select", {}).get("name", "")
+            
+            edad = props.get("Edad", {}).get("number", 0)
+            
+            tipo_cirugia = props.get("Tipo Cirugía", {}).get("select", {}).get("name", "")
+            estado = props.get("Estado", {}).get("select", {}).get("name", "Pendiente")
+            
+            poliza_relation = props.get("Número Póliza", {}).get("relation", [])
+            numero_poliza = poliza_relation[0].get("id", "") if poliza_relation else ""
+            
+            fecha_sol = props.get("Fecha Solicitada", {}).get("date", {})
+            fecha_solicitada = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
+            
+            files = props.get("Informe Médico", {}).get("files", [])
+            informe_url = files[0].get("file", {}).get("url", "") if files else None
+            
             return SolicitudAutorizacion(
-                id_solicitud=page.get("id", ""),
+                id_solicitud=id_solicitud,
                 paciente_nombre=paciente_nombre,
                 cedula=cedula,
                 edad=edad,
                 numero_poliza=numero_poliza,
                 tipo_cirugia=tipo_cirugia,
-                fecha_solicitada=datetime.fromisoformat(
-                    fecha_inicio_raw.replace("Z", "+00:00")
-                ),
+                fecha_solicitada=datetime.fromisoformat(fecha_solicitada.replace("Z", "+00:00")),
                 hospital=hospital,
                 medico_tratante=medico,
                 informe_medico_url=informe_url,
-                estado=estado,
+                estado=estado
             )
         except Exception as e:
-            print(f"❌ Error parseando página de Notion: {e}")
+            print(f"[ERROR] Error parseando página de Notion: {e}")
             return None
-
+    
     def parse_notion_page_to_poliza(self, page: Dict[str, Any]) -> Optional[Poliza]:
-        """Convierte una página de Notion a Poliza"""
+        """Convierte una página de Notion a modelo Poliza"""
         try:
             props = page.get("properties", {})
-
-            numero_poliza = self._extract_text(props.get("Número Póliza"), key="title")
-            aseguradora   = self._extract_select(props.get("Aseguradora"))
-            tipo_plan     = self._extract_select(props.get("Tipo Plan"), default="Básico")
-            estado        = self._extract_select(props.get("Estado"), default="Activa")
-            titular       = self._extract_text(props.get("Titular"))
-            carencia_dias = self._extract_number(props.get("Carencia Días"))
-
-            coberturas_text = self._extract_text(props.get("Coberturas"))
+            
+            numero_poliza = props.get("Número Póliza", {}).get("title", [{}])[0].get("text", {}).get("content", "")
+            aseguradora = props.get("Aseguradora", {}).get("select", {}).get("name", "")
+            titular = props.get("Titular", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
+            tipo_plan = props.get("Tipo Plan", {}).get("select", {}).get("name", "Básico")
+            estado = props.get("Estado", {}).get("select", {}).get("name", "Activa")
+            carencia_dias = props.get("Carencia Días", {}).get("number", 0)
+            
+            coberturas_text = props.get("Coberturas", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "{}")
             try:
-                coberturas = json.loads(coberturas_text) if coberturas_text else {}
-            except json.JSONDecodeError:
+                coberturas = json.loads(coberturas_text)
+            except:
                 coberturas = {}
-
-            exclusiones_text = self._extract_text(props.get("Exclusiones"))
+            
+            exclusiones_text = props.get("Exclusiones", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
             exclusiones = [e.strip() for e in exclusiones_text.split(",") if e.strip()]
-
-            fecha_inicio_raw = self._extract_date(
-                props.get("Fecha Inicio"), default=datetime.now().isoformat()
-            )
-            fecha_fin_raw = self._extract_date(
-                props.get("Fecha Fin"), default=datetime.now().isoformat()
-            )
-
+            
+            fecha_inicio_obj = props.get("Fecha Inicio", {}).get("date", {})
+            fecha_inicio = fecha_inicio_obj.get("start", datetime.now().isoformat()) if fecha_inicio_obj else datetime.now().isoformat()
+            
+            fecha_fin_obj = props.get("Fecha Fin", {}).get("date", {})
+            fecha_fin = fecha_fin_obj.get("start", datetime.now().isoformat()) if fecha_fin_obj else datetime.now().isoformat()
+            
             return Poliza(
                 numero_poliza=numero_poliza,
                 aseguradora=aseguradora,
@@ -248,14 +220,12 @@ class NotionService:
                 coberturas=coberturas,
                 exclusiones=exclusiones,
                 carencia_dias=carencia_dias,
-                fecha_inicio=datetime.fromisoformat(fecha_inicio_raw.replace("Z", "+00:00")),
-                fecha_fin=datetime.fromisoformat(fecha_fin_raw.replace("Z", "+00:00")),
-                estado=estado,
+                fecha_inicio=datetime.fromisoformat(fecha_inicio.replace("Z", "+00:00")),
+                fecha_fin=datetime.fromisoformat(fecha_fin.replace("Z", "+00:00")),
+                estado=estado
             )
         except Exception as e:
-            print(f"❌ Error parseando póliza de Notion: {e}")
+            print(f"[ERROR] Error parseando póliza de Notion: {e}")
             return None
 
-
-# Singleton
 notion_service = NotionService()

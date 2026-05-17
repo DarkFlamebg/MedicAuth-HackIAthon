@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     NOTION_VERSION: str = "2022-06-28"
     
     # AI Services
-    ANTHROPIC_API_KEY: str
+    GEMINI_API_KEY: str
     OPENAI_API_KEY: str = ""  # Opcional, para embeddings
     
     # ChromaDB (Vector Store)

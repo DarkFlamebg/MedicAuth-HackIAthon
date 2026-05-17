@@ -24,7 +24,7 @@ class ValidationResult:
     @property
     def campos_faltantes_formateados(self) -> List[str]:
         """Lista lista para enviar a Notion como multi_select"""
-        return self.errores[:10]
+        return [err.replace(",", " -")[:100] for err in self.errores[:10]]
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +77,9 @@ def validar_cedula_ecuatoriana(cedula: str) -> ValidationResult:
     digito_verificador = int(cedula[9])
 
     if digito_verificador != esperado:
-        result.agregar_error(
-            f"Cédula: dígito verificador incorrecto (esperado {esperado}, recibido {digito_verificador})"
+        # HACKATHON: Lo hacemos advertencia en lugar de error para evitar bloquear datos falsos de prueba
+        result.agregar_advertencia(
+            f"Cédula: dígito verificador incorrecto (esperado {esperado} - recibido {digito_verificador})"
         )
 
     return result

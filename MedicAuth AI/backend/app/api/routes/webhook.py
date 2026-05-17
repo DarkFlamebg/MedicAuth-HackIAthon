@@ -85,7 +85,7 @@ async def handle_notion_webhook(
     2. Procesa en background: valida → busca póliza → analiza con IA → actualiza Notion
     """
     try:
-        print(f"📨 Webhook recibido de Notion")
+        print("[INFO] Webhook recibido de Notion")
 
         page_id = _extract_page_id(payload)
         if not page_id:
@@ -100,7 +100,7 @@ async def handle_notion_webhook(
         }
 
     except Exception as e:
-        print(f"❌ Error en webhook: {e}")
+        print(f"[ERROR] Error en webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -148,31 +148,31 @@ async def process_authorization_request(page_id: str):
     start_time = time.time()
 
     try:
-        print(f"🔄 Procesando solicitud {page_id[:8]}...")
+        print(f"[PROCESS] Procesando solicitud {page_id[:8]}...")
 
         # 1. Obtener solicitud de Notion
         page_data = await notion_service.get_authorization_by_id(page_id)
         if not page_data:
-            print(f"❌ No se encontró página {page_id}")
+            print(f"[ERROR] No se encontró página {page_id}")
             return
 
         # 2. Parsear a modelo
         solicitud = notion_service.parse_notion_page_to_solicitud(page_data)
         if not solicitud:
-            print(f"❌ Error parseando solicitud {page_id}")
+            print(f"[ERROR] Error parseando solicitud {page_id}")
             return
 
-        print(f"📋 Solicitud: {solicitud.paciente_nombre} - {solicitud.tipo_cirugia}")
+        print(f"[INFO] Solicitud: {solicitud.paciente_nombre} - {solicitud.tipo_cirugia}")
 
         # 3. ── VALIDACIÓN ROBUSTA ──────────────────────────────────────
         validacion = validar_solicitud_completa(solicitud)
 
         if validacion.advertencias:
             for adv in validacion.advertencias:
-                print(f"⚠️  {adv}")
+                print(f"[WARNING] {adv}")
 
         if not validacion.valido:
-            print(f"❌ Validación fallida: {validacion.errores}")
+            print(f"[ERROR] Validación fallida: {validacion.errores}")
             await notion_service.update_authorization_status(
                 page_id=page_id,
                 status="Documentos Faltantes",
@@ -189,11 +189,9 @@ async def process_authorization_request(page_id: str):
         # ─────────────────────────────────────────────────────────────
 
         # 4. Buscar póliza
-        # numero_poliza puede ser el page_id UUID de la relación;
-        # get_policy_by_number maneja ambos casos (título o UUID directo)
         poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
         if not poliza_page:
-            print(f"❌ Póliza no encontrada: {solicitud.numero_poliza}")
+            print(f"[ERROR] Póliza no encontrada: {solicitud.numero_poliza}")
             await notion_service.update_authorization_status(
                 page_id=page_id,
                 status="Documentos Faltantes",
@@ -207,10 +205,10 @@ async def process_authorization_request(page_id: str):
 
         poliza = notion_service.parse_notion_page_to_poliza(poliza_page)
         if not poliza:
-            print(f"❌ Error parseando póliza")
+            print(f"[ERROR] Error parseando póliza")
             return
 
-        print(f"📄 Póliza encontrada: {poliza.numero_poliza} - {poliza.tipo_plan}")
+        print(f"[INFO] Póliza encontrada: {poliza.numero_poliza} - {poliza.tipo_plan}")
 
         # 5. Verificar que la póliza esté activa
         if poliza.estado.lower() != "activa":
@@ -225,29 +223,26 @@ async def process_authorization_request(page_id: str):
             )
             return
 
-        # 6. Extraer texto del informe médico PDF (si existe)
-        informe_medico_text = None
+        # 6. Extraer bytes del informe médico PDF (si existe)
+        informe_medico_bytes = None
         if solicitud.informe_medico_url:
-            from app.utils.pdf_extractor import pdf_extractor
-            raw_text = await pdf_extractor.extract_text_from_url(solicitud.informe_medico_url)
-            if raw_text:
-                informe_medico_text = pdf_extractor.summarize_long_text(raw_text, max_chars=3000)
-                print(f"📎 Informe médico extraído: {len(informe_medico_text)} caracteres")
-            else:
-                print(f"⚠️  No se pudo extraer texto del informe médico")
+            from app.services.pdf_extractor import pdf_extractor
+            informe_medico_bytes = await pdf_extractor.download_pdf_bytes(solicitud.informe_medico_url)
+            if not informe_medico_bytes:
+                print(f"[WARNING] No se pudo descargar el informe médico")
         else:
-            print(f"ℹ️  Solicitud sin informe médico adjunto")
+            print(f"[INFO] Solicitud sin informe médico adjunto")
 
         # 7. Procesar con IA
-        print(f"🤖 Enviando a agente IA...")
+        print(f"[AI] Enviando a agente IA Gemini...")
         decision = await ai_agent.process_authorization(
             solicitud=solicitud,
             poliza=poliza,
-            informe_medico_text=informe_medico_text
+            informe_medico_bytes=informe_medico_bytes
         )
 
-        print(f"{'✅' if decision.aprobado else '❌'} Decisión: {'APROBADO' if decision.aprobado else 'RECHAZADO'}")
-        print(f"📊 Confianza: {decision.score_confianza}%")
+        dec_str = "APROBADO" if decision.aprobado else "RECHAZADO"
+        print(f"[AI] Decisión: {dec_str} | Confianza: {decision.score_confianza}%")
 
         # 8. Determinar estado final
         if decision.aprobado:
@@ -273,10 +268,10 @@ async def process_authorization_request(page_id: str):
         )
 
         total_time = time.time() - start_time
-        print(f"⏱️  Procesamiento completado en {total_time:.2f}s")
+        print(f"[SUCCESS] Procesamiento completado en {total_time:.2f}s")
 
     except Exception as e:
-        print(f"❌ Error procesando solicitud {page_id}: {e}")
+        print(f"[ERROR] Error procesando solicitud {page_id}: {e}")
         try:
             await notion_service.update_authorization_status(
                 page_id=page_id,
