@@ -235,13 +235,7 @@ class NotionService:
             
         if data.informe_medico_url:
             properties["Informe Médico"] = {
-                "files": [
-                    {
-                        "type": "external",
-                        "name": "Informe_Medico.pdf",
-                        "external": {"url": data.informe_medico_url}
-                    }
-                ]
+                "url": data.informe_medico_url
             }
             
         try:
