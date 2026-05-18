@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 
-from app.core.config import settings
+from app.core.config import settings  # noqa: F401 (usado también para CLOUDINARY_CLOUD_NAME)
 from app.models.authorization import SolicitudAutorizacion, Poliza, SolicitudCreate, PolizaCreate
 
 
@@ -234,9 +234,15 @@ class NotionService:
             properties["Número Póliza"] = {"relation": [{"id": poliza_id}]}
             
         if data.informe_medico_url:
+            informe_url = data.informe_medico_url.strip()
+            # Si llega solo el public_id (sin dominio), reconstruir la URL completa
+            if informe_url and not informe_url.startswith("http"):
+                informe_url = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/raw/upload/{informe_url}"
+                print(f"[WARNING] URL de informe reconstruida: {informe_url}")
             properties["Informe Médico"] = {
-                "url": data.informe_medico_url
+                "url": informe_url
             }
+            print(f"[INFO] Informe Médico guardado en Notion: {informe_url}")
             
         try:
             new_page = await self.client.pages.create(
@@ -278,8 +284,8 @@ class NotionService:
             fecha_sol = props.get("Fecha Solicitada", {}).get("date", {})
             fecha_solicitada = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
             
-            files = props.get("Informe Médico", {}).get("files", [])
-            informe_url = files[0].get("file", {}).get("url", "") if files else None
+            # "Informe Médico" se guarda como propiedad tipo URL en Notion
+            informe_url = props.get("Informe Médico", {}).get("url") or None
             
             return SolicitudAutorizacion(
                 id_solicitud=id_solicitud,
