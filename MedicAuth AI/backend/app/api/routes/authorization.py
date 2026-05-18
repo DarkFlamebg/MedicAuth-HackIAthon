@@ -11,7 +11,7 @@ import time
 from app.models.authorization import SolicitudCreate
 from app.services.notion_service import notion_service
 from app.core.dependencies import rate_limiter_in_memory
-from app.api.webhook import process_authorization_request 
+from app.api.routes.webhook import process_authorization_request
 
 router = APIRouter(
     dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
