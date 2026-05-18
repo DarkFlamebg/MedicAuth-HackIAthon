@@ -9,7 +9,7 @@ pydantic-settings==2.1.0
 google-generativeai==0.8.3
 langchain==0.2.0
 langchain-core==0.2.0
-langchain-google-genai==1.0.1
+langchain-google-genai>=2.0.0 
 langgraph==0.0.65
 openai==1.12.0
 
