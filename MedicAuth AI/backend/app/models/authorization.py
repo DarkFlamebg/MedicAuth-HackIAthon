@@ -108,6 +108,17 @@ class WebhookNotionPayload(BaseModel):
     created_time: Optional[str] = None
     last_edited_time: Optional[str] = None
 
+class PolizaCreate(BaseModel):
+    """Modelo para crear una nueva póliza desde el frontend"""
+    aseguradora: str
+    titular: str
+    tipo_plan: str
+    coberturas: Dict[str, Any]
+    exclusiones: List[str]
+    carencia_dias: int
+    fecha_inicio: str
+    fecha_fin: str
+
 class SolicitudCreate(BaseModel):
     """Modelo para crear una nueva solicitud desde el frontend"""
     paciente_nombre: str
@@ -119,3 +130,4 @@ class SolicitudCreate(BaseModel):
     medico_tratante: str
     fecha_solicitada: str
     informe_medico_url: str
+    poliza_data: Optional[PolizaCreate] = None

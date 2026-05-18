@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 from app.core.config import settings
-from app.models.authorization import SolicitudAutorizacion, Poliza, SolicitudCreate
+from app.models.authorization import SolicitudAutorizacion, Poliza, SolicitudCreate, PolizaCreate
 
 
 def _get_rich_text(prop: dict) -> str:
@@ -177,13 +177,46 @@ class NotionService:
             print(f"[ERROR] Error actualizando solicitud {page_id}: {e}")
             return False
             
+    async def create_policy_request(self, numero_poliza: str, data: PolizaCreate) -> Optional[str]:
+        """Crea una nueva póliza en Notion y devuelve el page_id"""
+        properties = {
+            "Número Póliza": {"title": [{"text": {"content": numero_poliza}}]},
+            "Titular": {"rich_text": [{"text": {"content": data.titular}}]},
+            "Aseguradora": {"select": {"name": data.aseguradora}},
+            "Tipo Plan": {"select": {"name": data.tipo_plan}},
+            "Coberturas": {"rich_text": [{"text": {"content": json.dumps(data.coberturas, ensure_ascii=False)[:1900]}}]},
+            "Exclusiones": {"rich_text": [{"text": {"content": ", ".join(data.exclusiones)[:1900]}}]},
+            "Carencia Días": {"number": data.carencia_dias},
+            "Fecha Inicio": {"date": {"start": data.fecha_inicio}},
+            "Fecha Fin": {"date": {"start": data.fecha_fin}},
+            "Estado": {"select": {"name": "Activa"}}
+        }
+        try:
+            new_page = await self.client.pages.create(
+                parent={"database_id": self.polizas_db_id},
+                properties=properties
+            )
+            print(f"[SUCCESS] Póliza creada en Notion: {numero_poliza}")
+            return new_page["id"]
+        except Exception as e:
+            print(f"[ERROR] Error al crear póliza en Notion: {e}")
+            return None
+            
     async def create_authorization_request(self, data: SolicitudCreate) -> Optional[str]:
         """Crea una nueva solicitud en Notion y devuelve el page_id"""
         import random
         req_id = f"REQ-{random.randint(1000, 9999)}"
         
-        poliza = await self.get_policy_by_number(data.numero_poliza)
-        poliza_id = poliza["id"] if poliza else ""
+        poliza_id = ""
+        
+        # 1. Si vienen datos de póliza, crearla primero
+        if data.poliza_data:
+            poliza_id = await self.create_policy_request(data.numero_poliza, data.poliza_data)
+            
+        # 2. Si no venía póliza o falló, buscarla
+        if not poliza_id:
+            poliza = await self.get_policy_by_number(data.numero_poliza)
+            poliza_id = poliza["id"] if poliza else ""
         
         properties = {
             "ID Solicitud": {"title": [{"text": {"content": req_id}}]},

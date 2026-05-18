@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File
+import cloudinary
+import cloudinary.uploader
 from typing import List
 from app.models.authorization import SolicitudCreate
 from app.services.notion_service import notion_service
@@ -74,6 +76,28 @@ async def get_authorization_stats():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload-pdf", status_code=200)
+async def upload_pdf(file: UploadFile = File(...)):
+    """Sube un archivo PDF a Cloudinary y devuelve la URL segura"""
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un documento PDF")
+    
+    try:
+        # Cloudinary automáticamente lee CLOUDINARY_URL de .env
+        result = cloudinary.uploader.upload(
+            file.file,
+            resource_type="raw", # raw es requerido para documentos no-imagen
+            folder="medicauth_pdfs"
+        )
+        
+        return {
+            "status": "success",
+            "url": result.get("secure_url")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error subiendo a Cloudinary: {str(e)}")
 
 
 @router.post("/create", status_code=201)
