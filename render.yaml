@@ -2,6 +2,7 @@ services:
   - type: web
     name: medicauth-backend
     env: python
+    plan: free
     region: ohio # O usa 'frankfurt' si tu frontend/base de datos está en Europa
     rootDir: "MedicAuth AI/backend"
     buildCommand: "pip install -r requirements.txt"
