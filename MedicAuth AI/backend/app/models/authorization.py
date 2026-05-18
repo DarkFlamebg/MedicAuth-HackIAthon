@@ -129,5 +129,5 @@ class SolicitudCreate(BaseModel):
     hospital: str
     medico_tratante: str
     fecha_solicitada: str
-    informe_medico_url: str
+    informe_medico_url: Optional[str] = None
     poliza_data: Optional[PolizaCreate] = None

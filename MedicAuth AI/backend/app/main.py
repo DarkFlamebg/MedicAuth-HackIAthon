@@ -6,6 +6,7 @@ Agente Inteligente de Pre-Autorización Quirúrgica en Tiempo Real
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import cloudinary
 
 from app.core.config import settings
 from app.api.routes import webhook, authorization, health
@@ -17,6 +18,19 @@ async def lifespan(app: FastAPI):
     print("Iniciando SurgeryAuth AI...")
     print(f"Notion DB Solicitudes: {settings.NOTION_SOLICITUDES_DB_ID[:8]}...")
     print(f"Notion DB Pólizas: {settings.NOTION_POLIZAS_DB_ID[:8]}...")
+
+    # Inicializar Cloudinary con credenciales
+    if settings.CLOUDINARY_CLOUD_NAME and settings.CLOUDINARY_API_KEY and settings.CLOUDINARY_API_SECRET:
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            secure=True
+        )
+        print("✓ Cloudinary configurado")
+    else:
+        print("⚠️ Cloudinary no configurado - falta CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY o CLOUDINARY_API_SECRET")
+
     yield
     # Shutdown
     print("Cerrando SurgeryAuth AI...")

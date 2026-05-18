@@ -37,7 +37,28 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production"
     WEBHOOK_SECRET_TOKEN: str = "medicauth_secret_hack_2026"
-    
+
+    # Cloudinary
+    CLOUDINARY_URL: str = ""
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Parse CLOUDINARY_URL if provided
+        if self.CLOUDINARY_URL and "cloudinary://" in self.CLOUDINARY_URL:
+            try:
+                # Format: cloudinary://api_key:api_secret@cloud_name
+                url = self.CLOUDINARY_URL.replace("cloudinary://", "")
+                creds, cloud = url.split("@")
+                api_key, api_secret = creds.split(":")
+                self.CLOUDINARY_API_KEY = api_key
+                self.CLOUDINARY_API_SECRET = api_secret
+                self.CLOUDINARY_CLOUD_NAME = cloud
+            except Exception as e:
+                print(f"Error parsing CLOUDINARY_URL: {e}")
+
     class Config:
         env_file = ".env"
         case_sensitive = True

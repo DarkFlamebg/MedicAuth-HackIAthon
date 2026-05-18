@@ -2,6 +2,12 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFi
 import cloudinary
 import cloudinary.uploader
 from typing import List
+import json
+import re
+import httpx
+import tempfile
+import pathlib
+import time
 from app.models.authorization import SolicitudCreate
 from app.services.notion_service import notion_service
 from app.core.dependencies import rate_limiter_in_memory
@@ -9,6 +15,58 @@ from app.core.dependencies import rate_limiter_in_memory
 router = APIRouter(
     dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
 )
+
+
+async def analizar_pdf_con_gemini(pdf_url: str, nombre_archivo: str) -> dict:
+    """Lee PDF desde URL y extrae información médica con Gemini"""
+    import google.generativeai as genai
+    from app.core.config import settings
+
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(pdf_url, timeout=30)
+        pdf_bytes = response.content
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+
+    archivo_gemini = genai.upload_file(
+        path=tmp_path,
+        display_name=nombre_archivo,
+        mime_type="application/pdf",
+    )
+
+    pathlib.Path(tmp_path).unlink(missing_ok=True)
+
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    prompt = """
+    Analiza este informe médico PDF y extrae en JSON:
+    {
+        "paciente_nombre": "nombre completo",
+        "cedula": "identificación",
+        "edad": null o número,
+        "diagnostico": "diagnóstico principal",
+        "tipo_cirugia": "tipo de cirugía",
+        "medico_tratante": "médico",
+        "hospital": "hospital/clínica",
+        "fecha_solicitada": "YYYY-MM-DD",
+        "observaciones": "observaciones",
+        "documentos_presentes": ["lista de documentos"],
+        "resumen": "resumen 2-3 oraciones"
+    }
+    Responde ÚNICAMENTE con JSON válido, sin markdown.
+    """
+
+    resultado = model.generate_content([archivo_gemini, prompt])
+    texto = resultado.text.strip()
+    texto = re.sub(r"```json|```", "", texto).strip()
+
+    try:
+        return json.loads(texto)
+    except json.JSONDecodeError:
+        return {"resumen": texto, "error": "No se pudo parsear JSON completo"}
 
 @router.get("/pending")
 async def get_pending_authorizations():
@@ -80,24 +138,36 @@ async def get_authorization_stats():
 
 @router.post("/upload-pdf", status_code=200)
 async def upload_pdf(file: UploadFile = File(...)):
-    """Sube un archivo PDF a Cloudinary y devuelve la URL segura"""
+    """Sube PDF a Cloudinary, Gemini lo analiza, retorna URL + análisis"""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un documento PDF")
-    
+
     try:
-        # Cloudinary automáticamente lee CLOUDINARY_URL de .env
         result = cloudinary.uploader.upload(
             file.file,
-            resource_type="raw", # raw es requerido para documentos no-imagen
-            folder="medicauth_pdfs"
+            resource_type="raw",
+            folder="medicauth_pdfs",
+            public_id=f"{file.filename.replace('.pdf', '')}_{int(time.time())}",
+            overwrite=False,
         )
-        
-        return {
-            "status": "success",
-            "url": result.get("secure_url")
-        }
+        pdf_url = result.get("secure_url")
+        print(f"[CLOUDINARY] PDF subido: {pdf_url}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error subiendo a Cloudinary: {str(e)}")
+
+    try:
+        analisis = await analizar_pdf_con_gemini(pdf_url, file.filename)
+        print(f"[GEMINI] Análisis completado")
+    except Exception as e:
+        print(f"[WARNING] Gemini no pudo analizar el PDF: {e}")
+        analisis = {}
+
+    return {
+        "status": "success",
+        "url": pdf_url,
+        "analisis": analisis,
+        "mensaje": "PDF subido y analizado correctamente"
+    }
 
 
 @router.post("/create", status_code=201)
