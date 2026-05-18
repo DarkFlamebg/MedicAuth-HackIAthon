@@ -191,6 +191,15 @@ class NotionService:
             "Fecha Fin": {"date": {"start": data.fecha_fin}},
             "Estado": {"select": {"name": "Activa"}}
         }
+        if data.documento_poliza_url:
+            doc_url = data.documento_poliza_url.strip()
+            if doc_url and not doc_url.startswith("http"):
+                doc_url = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/raw/upload/{doc_url}"
+            properties["Documento Póliza"] = {"url": doc_url}
+            properties["Documento Póliza URL"] = {
+                "rich_text": [{"text": {"content": doc_url}}]
+            }
+            print(f"[INFO] Documento Póliza guardado: {doc_url}")
         try:
             new_page = await self.client.pages.create(
                 parent={"database_id": self.polizas_db_id},
@@ -239,8 +248,11 @@ class NotionService:
             if informe_url and not informe_url.startswith("http"):
                 informe_url = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/raw/upload/{informe_url}"
                 print(f"[WARNING] URL de informe reconstruida: {informe_url}")
-            properties["Informe Médico"] = {
-                "url": informe_url
+            # Campo tipo URL (puede truncarse en Notion con rutas /raw/upload/)
+            properties["Informe Médico"] = {"url": informe_url}
+            # Respaldo en rich_text para garantizar la URL completa
+            properties["Informe Médico URL"] = {
+                "rich_text": [{"text": {"content": informe_url}}]
             }
             print(f"[INFO] Informe Médico guardado en Notion: {informe_url}")
             
@@ -284,8 +296,16 @@ class NotionService:
             fecha_sol = props.get("Fecha Solicitada", {}).get("date", {})
             fecha_solicitada = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
             
-            # "Informe Médico" se guarda como propiedad tipo URL en Notion
-            informe_url = props.get("Informe Médico", {}).get("url") or None
+            # Leer URL del informe: primero rich_text (respaldo fiable), luego campo url
+            informe_url_backup = _get_rich_text(props.get("Informe Médico URL", {}))
+            informe_url_field = props.get("Informe Médico", {}).get("url") or ""
+            # Preferir el rich_text si el campo url está truncado (sin http)
+            if informe_url_backup and informe_url_backup.startswith("http"):
+                informe_url = informe_url_backup
+            elif informe_url_field and informe_url_field.startswith("http"):
+                informe_url = informe_url_field
+            else:
+                informe_url = None
             
             return SolicitudAutorizacion(
                 id_solicitud=id_solicitud,

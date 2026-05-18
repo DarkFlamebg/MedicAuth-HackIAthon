@@ -118,6 +118,7 @@ class PolizaCreate(BaseModel):
     carencia_dias: int
     fecha_inicio: str
     fecha_fin: str
+    documento_poliza_url: Optional[str] = None
 
 class SolicitudCreate(BaseModel):
     """Modelo para crear una nueva solicitud desde el frontend"""
