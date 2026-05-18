@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, BackgroundTasks
 import cloudinary
 import cloudinary.uploader
 from typing import List
@@ -11,6 +11,7 @@ import time
 from app.models.authorization import SolicitudCreate
 from app.services.notion_service import notion_service
 from app.core.dependencies import rate_limiter_in_memory
+from app.api.webhook import process_authorization_request 
 
 router = APIRouter(
     dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
@@ -327,3 +328,33 @@ async def get_authorization_details(page_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/{page_id}/process", status_code=202)
+async def trigger_process_authorization(
+    page_id: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Dispara manualmente el procesamiento IA de una solicitud pendiente.
+    Usado por el botón 'Procesar con IA' en el dashboard.
+    """
+    # Verificar que la solicitud existe
+    page = await notion_service.get_authorization_by_id(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    
+    # Opcional pero recomendado: evitar reprocesar si ya está resuelta
+    solicitud = notion_service.parse_notion_page_to_solicitud(page)
+    if solicitud and solicitud.estado != "Pendiente":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"La solicitud ya fue procesada con estado: {solicitud.estado}"
+        )
+
+    # Encolar el grafo LangGraph en background (no bloquea la UI)
+    background_tasks.add_task(process_authorization_request, page_id)
+    
+    return {
+        "status": "accepted",
+        "page_id": page_id,
+        "message": "Auditoría IA iniciada en segundo plano. La página se actualizará en Notion en breve."
+    }

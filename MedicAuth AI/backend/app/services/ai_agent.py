@@ -15,7 +15,7 @@ class AIAgent:
         Punto de entrada asíncrono que ejecuta la arquitectura multi-agente reflectiva
         leyendo el informe directamente desde la URL de Cloudinary almacenada.
         """
-        print(f"\n🚀 [INICIANDO AUDITORÍA EN GRAFO] Solicitud ID: {solicitud.id_solicitud}")
+        print(f"\n [INICIANDO AUDITORÍA EN GRAFO] Solicitud ID: {solicitud.id_solicitud}")
         start_time = time.time()
         
         # Inyectamos directamente la URL de Cloudinary que ya viene mapeada en la solicitud

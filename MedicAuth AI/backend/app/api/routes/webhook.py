@@ -207,22 +207,17 @@ async def process_authorization_request(page_id: str):
             )
             return
 
-        # 6. Extraer bytes del informe médico PDF (si existe)
-        informe_medico_bytes = None
+        # 6. Verificar existencia de informe médico (el grafo lo descarga por URL)
         if solicitud.informe_medico_url:
-            from app.services.pdf_extractor import pdf_extractor
-            informe_medico_bytes = await pdf_extractor.download_pdf_bytes(solicitud.informe_medico_url)
-            if not informe_medico_bytes:
-                print(f"[WARNING] No se pudo descargar el informe médico")
+            print(f"[INFO] Informe médico adjunto: {solicitud.informe_medico_url[:60]}...")
         else:
             print(f"[INFO] Solicitud sin informe médico adjunto")
 
-        # 7. Procesar con IA
+        # 7. Procesar con IA (el grafo descarga el PDF internamente desde la URL)
         print(f"[AI] Enviando a agente IA Gemini...")
         decision = await ai_agent.process_authorization(
             solicitud=solicitud,
-            poliza=poliza,
-            informe_medico_bytes=informe_medico_bytes
+            poliza=poliza
         )
 
         dec_str = "APROBADO" if decision.aprobado else "RECHAZADO"
