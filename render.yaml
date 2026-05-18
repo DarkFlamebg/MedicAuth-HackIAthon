@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: medicauth-backend
+    env: python
+    region: ohio # O usa 'frankfurt' si tu frontend/base de datos está en Europa
+    rootDir: "MedicAuth AI/backend"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PROJECT_NAME
+        value: "SurgeryAuth AI"
+      - key: ALLOWED_ORIGINS
+        value: '["*"]' # Permite peticiones de cualquier frontend en etapa de pruebas
+      # Las siguientes variables (claves y secretos) NO se guardan en código por seguridad.
+      # Render te pedirá que las ingreses en su panel web la primera vez que despliegues:
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_SOLICITUDES_DB_ID
+        sync: false
+      - key: NOTION_POLIZAS_DB_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WEBHOOK_SECRET_TOKEN
+        value: "medicauth_secret_hack_2026" # Puedes cambiar esto por uno más seguro en el panel de Render
+      - key: SECRET_KEY
+        sync: false
