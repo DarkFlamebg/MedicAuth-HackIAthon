@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 import cloudinary
 import cloudinary.uploader
 from typing import List
@@ -104,7 +104,6 @@ async def get_authorization_stats():
         ]
 
         # Calcular tiempo promedio de procesamiento (en segundos)
-        # Asume que la póliza tiene un campo "Tiempo Procesamiento" (número en segundos)
         all_processed = aprobadas_pages + rechazadas_pages + docs_pages
         tiempos = []
         for page in all_processed:
@@ -138,26 +137,43 @@ async def get_authorization_stats():
 
 @router.post("/upload-pdf", status_code=200)
 async def upload_pdf(file: UploadFile = File(...)):
-    """Sube PDF a Cloudinary, Gemini lo analiza, retorna URL + análisis"""
+    """Sube PDF a Cloudinary como raw con permisos liberados para Notion"""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un documento PDF")
 
     try:
+        # 1. Asegurar la lectura correcta de los bytes desde el inicio
+        await file.seek(0)
+        file_bytes = await file.read()
+        await file.seek(0)
+
+        # 2. Construir el public_id FORZANDO la extensión .pdf al final
+        nombre_base = file.filename.lower().replace('.pdf', '')
+        nombre_limpio = "".join(c for c in nombre_base if c.isalnum() or c in ('_', '-'))
+        public_id_final = f"{nombre_limpio}_{int(time.time())}.pdf"
+
+        # 3. Subida estándar al pipeline de archivos RAW
         result = cloudinary.uploader.upload(
-            file.file,
+            file_bytes,
             resource_type="raw",
+            type="upload",
             folder="medicauth_pdfs",
-            public_id=f"{file.filename.replace('.pdf', '')}_{int(time.time())}",
+            public_id=public_id_final,
             overwrite=False,
+            access_mode="public",  # Indica acceso público global
+            content_disposition="inline"  # Fuerza visualización en lugar de descarga
         )
+        
         pdf_url = result.get("secure_url")
-        print(f"[CLOUDINARY] PDF subido: {pdf_url}")
+        print(f"[CLOUDINARY SUCCESS] URL lista para Notion: {pdf_url}")
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error subiendo a Cloudinary: {str(e)}")
 
     try:
+        # Ahora Gemini descargará el PDF real sin bloqueos 401
         analisis = await analizar_pdf_con_gemini(pdf_url, file.filename)
-        print(f"[GEMINI] Análisis completado")
+        print(f"[GEMINI] Análisis completado con éxito")
     except Exception as e:
         print(f"[WARNING] Gemini no pudo analizar el PDF: {e}")
         analisis = {}
@@ -169,28 +185,80 @@ async def upload_pdf(file: UploadFile = File(...)):
         "mensaje": "PDF subido y analizado correctamente"
     }
 
+@router.post("/create-with-pdf", status_code=201)
+async def create_authorization_with_pdf(
+    solicitud_data: SolicitudCreate,
+    pdf_file: UploadFile = File(None)
+):
+    """
+    ✅ ENDPOINT COMPLETO: Sube PDF a Cloudinary + Crea solicitud en Notion en UN PASO
+    
+    Si pdf_file está presente: Sube a Cloudinary y pone la URL en Notion
+    Si no: Usa informe_medico_url si viene en solicitud_data
+    """
+    pdf_url = None
+    
+    # Si viene un archivo PDF, subirlo primero
+    if pdf_file and pdf_file.filename.lower().endswith('.pdf'):
+        try:
+            await pdf_file.seek(0)
+            file_bytes = await pdf_file.read()
+            
+            nombre_base = pdf_file.filename.lower().replace('.pdf', '')
+            nombre_limpio = "".join(c for c in nombre_base if c.isalnum() or c in ('_', '-'))
+            public_id_final = f"{nombre_limpio}_{int(time.time())}.pdf"
+            
+            result = cloudinary.uploader.upload(
+                file_bytes,
+                resource_type="raw",
+                type="upload",
+                folder="medicauth_pdfs",
+                public_id=public_id_final,
+                overwrite=False,
+                access_mode="public",
+                content_disposition="inline"
+            )
+            
+            pdf_url = result.get("secure_url")
+            print(f"[CLOUDINARY] PDF subido: {pdf_url}")
+            
+        except Exception as e:
+            print(f"[WARNING] No se pudo subir PDF a Cloudinary: {e}")
+    
+    # Usar URL de Cloudinary si se logró obtener, sino la que viene en solicitud_data
+    if pdf_url:
+        solicitud_data.informe_medico_url = pdf_url
+    
+    # Crear solicitud en Notion con la URL (de Cloudinary o la que trajo)
+    try:
+        page_id = await notion_service.create_authorization_request(solicitud_data)
+        
+        if not page_id:
+            raise HTTPException(status_code=500, detail="No se pudo crear la solicitud en Notion")
+        
+        return {
+            "status": "success",
+            "page_id": page_id,
+            "informe_url": solicitud_data.informe_medico_url,
+            "message": "Solicitud creada en Notion con URL de informe médico"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/create", status_code=201)
-async def create_authorization(
-    solicitud: SolicitudCreate, 
-    background_tasks: BackgroundTasks
-):
-    """Crea una nueva solicitud en Notion y dispara el análisis IA"""
+async def create_authorization(solicitud: SolicitudCreate):
+    """Crea una nueva solicitud en Notion y retorna el page_id para auditoría posterior"""
     try:
         page_id = await notion_service.create_authorization_request(solicitud)
         
         if not page_id:
             raise HTTPException(status_code=500, detail="No se pudo crear la solicitud en Notion")
-            
-        # Importar aquí para evitar referencias circulares si webhook depende de algo más
-        from app.api.routes.webhook import process_authorization_request
-        
-        # Encolar el procesamiento de IA
-        background_tasks.add_task(process_authorization_request, page_id)
         
         return {
             "status": "success", 
-            "message": "Solicitud creada y enviada a análisis", 
+            "message": "Solicitud creada exitosamente. Use el endpoint GET /{page_id} para auditoría automática", 
             "page_id": page_id
         }
     except Exception as e:
