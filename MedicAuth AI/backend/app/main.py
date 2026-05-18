@@ -27,9 +27,9 @@ async def lifespan(app: FastAPI):
             api_secret=settings.CLOUDINARY_API_SECRET,
             secure=True
         )
-        print("✓ Cloudinary configurado")
+        print(" Cloudinary configurado")
     else:
-        print("⚠️ Cloudinary no configurado - falta CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY o CLOUDINARY_API_SECRET")
+        print(" Cloudinary no configurado - falta CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY o CLOUDINARY_API_SECRET")
 
     yield
     # Shutdown
