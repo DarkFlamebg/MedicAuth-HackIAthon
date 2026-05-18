@@ -1,0 +1,141 @@
+---
+import { Upload, Images } from '@lucide/astro';
+
+interface Props {
+	label: string;
+	name: string;
+	required?: boolean;
+	description?: string;
+	icon?: 'upload' | 'images';
+}
+
+const {
+	label,
+	name,
+	required = false,
+	description = 'PDF, máx. 10 MB',
+	icon = 'upload'
+} = Astro.props;
+---
+
+<div class="flex flex-col gap-2">
+	<label class="font-medium text-sm">
+		{label}
+
+		{required && (
+			<span class="text-red-500">*</span>
+		)}
+	</label>
+
+	<div
+		id={`dropzone-${name}`}
+		class="
+			border-2 border-dashed border-slate-600
+			rounded-2xl
+			bg-[#141418]
+			hover:border-emerald-400
+			transition-colors
+			cursor-pointer
+			p-10
+			flex
+			flex-col
+			items-center
+			justify-center
+			text-center
+			gap-3
+		"
+	>
+		{
+			icon === 'upload' ? (
+				<Upload size={40} class="text-slate-400" />
+			) : (
+				<Images size={40} class="text-slate-400" />
+			)
+		}
+
+		<div class="space-y-1">
+			<p class="font-medium text-slate-200">
+				Arrastra o haz clic para subir
+			</p>
+
+			<p class="text-sm text-slate-400">
+				{description}
+			</p>
+
+			<p
+				id={`filename-${name}`}
+				class="text-sm text-emerald-400 hidden"
+			></p>
+		</div>
+
+		<input
+			id={name}
+			name={name}
+			type="file"
+			class="hidden"
+			required={required}
+			accept=".pdf,image/*"
+		/>
+	</div>
+</div>
+
+<script define:vars={{ name }}>
+	const dropzone = document.getElementById(`dropzone-${name}`);
+	const input = document.getElementById(name);
+	const filename = document.getElementById(`filename-${name}`);
+
+	if (dropzone && input) {
+
+		// CLICK
+		dropzone.addEventListener('click', () => {
+			input.click();
+		});
+
+		// DRAG OVER
+		dropzone.addEventListener('dragover', (e) => {
+			e.preventDefault();
+
+			dropzone.classList.add(
+				'border-emerald-400',
+				'bg-slate-800'
+			);
+		});
+
+		// DRAG LEAVE
+		dropzone.addEventListener('dragleave', () => {
+			dropzone.classList.remove(
+				'border-emerald-400',
+				'bg-slate-800'
+			);
+		});
+
+		// DROP
+		dropzone.addEventListener('drop', (e) => {
+			e.preventDefault();
+
+			dropzone.classList.remove(
+				'border-emerald-400',
+				'bg-slate-800'
+			);
+
+			const files = e.dataTransfer?.files;
+
+			if (files && files.length > 0) {
+				input.files = files;
+
+				if (filename) {
+					filename.textContent = files[0].name;
+					filename.classList.remove('hidden');
+				}
+			}
+		});
+
+		// SELECT FILE
+		input.addEventListener('change', () => {
+			if (input.files?.length && filename) {
+				filename.textContent = input.files[0].name;
+				filename.classList.remove('hidden');
+			}
+		});
+	}
+</script>

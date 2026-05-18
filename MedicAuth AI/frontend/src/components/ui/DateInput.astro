@@ -1,0 +1,31 @@
+---
+interface Props {
+	label: string;
+	name: string;
+	required?: boolean;
+}
+
+const {
+	label,
+	name,
+	required = false
+} = Astro.props;
+---
+
+<div class="flex flex-col gap-2">
+	<label for={name} class="font-medium text-sm">
+		{label}
+
+		{required && (
+			<span class="text-red-500">*</span>
+		)}
+	</label>
+
+	<input
+		type="date"
+		id={name}
+		name={name}
+		required={required}
+		class="bg-white text-black border border-slate-600 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-400"
+	/>
+</div>
