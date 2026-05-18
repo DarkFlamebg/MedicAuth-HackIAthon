@@ -289,14 +289,12 @@ async def nodo_notion_saver(state: AuthorizationState) -> Dict[str, Any]:
     solicitud = state["solicitud"]
     decision = state["decision_final"]
     
-    # Mapear bandera booleana a las categorías select que configuraste en tu Notion
     nuevo_estado = EstadoSolicitud.APROBADO.value if decision["aprobado"] else EstadoSolicitud.RECHAZADO.value
     if decision["documentos_faltantes"]:
         nuevo_estado = EstadoSolicitud.DOCUMENTOS_FALTANTES.value
         
     tiempo_total = time.time() - state["tiempo_inicio"]
     
-    # Ejecutamos la llamada asíncrona oficial reutilizando tu NotionService intacto
     await notion_service.update_authorization_status(
         page_id=solicitud.id_solicitud,
         status=nuevo_estado,
@@ -307,7 +305,8 @@ async def nodo_notion_saver(state: AuthorizationState) -> Dict[str, Any]:
         processing_time=tiempo_total
     )
     
-    return {}
+    # EN LUGAR DE 'return {}', retorna el mismo estado para evitar el error de LangGraph
+    return state
 
 
 # 4. DIRECCIONAMIENTO CONDICIONAL (Routing)
