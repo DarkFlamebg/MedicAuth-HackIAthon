@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production"
+    WEBHOOK_SECRET_TOKEN: str = "medicauth_secret_hack_2026"
     
     class Config:
         env_file = ".env"

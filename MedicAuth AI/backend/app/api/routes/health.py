@@ -2,11 +2,14 @@
 Health check endpoints
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from datetime import datetime
 from app.core.config import settings
+from app.core.dependencies import rate_limiter_in_memory
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
+)
 
 @router.get("/health")
 async def health_check():

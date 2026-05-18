@@ -1,8 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from app.services.notion_service import notion_service
+from app.core.dependencies import rate_limiter_in_memory
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
+)
 
 @router.get("/pending")
 async def get_pending_authorizations():

@@ -2,18 +2,21 @@
 Webhook para recibir eventos de Notion
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Request, status
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 import re
 import time
 
+from app.core.config import settings
 from app.services.notion_service import notion_service
 from app.services.ai_agent import ai_agent
 from app.utils.validators import validar_solicitud_completa
+from app.core.dependencies import rate_limiter_in_memory, verify_webhook_token
 
-router = APIRouter()
-
+router = APIRouter(
+    dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
+)
 
 # ------------------------------------------------------------------
 # Extracción de page_id
