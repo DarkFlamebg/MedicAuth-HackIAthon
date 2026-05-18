@@ -262,41 +262,54 @@ class NotionService:
         try:
             props = page.get("properties", {})
             id_solicitud = page.get("id", "")
-            
-            # Usando helpers seguros para evitar list index out of range
+
             paciente_nombre = _get_rich_text(props.get("Paciente Nombre", {}))
             cedula = _get_rich_text(props.get("Cédula", {}))
             medico = _get_rich_text(props.get("Médico Tratante", {}))
-            
+
             hospital = props.get("Hospital", {}).get("select", {})
             hospital_name = hospital.get("name", "") if hospital else ""
-            
+
             edad = props.get("Edad", {}).get("number")
             edad = edad if edad is not None else 0
-            
+
             tipo_cirugia_prop = props.get("Tipo Cirugía", {}).get("select", {})
             tipo_cirugia = tipo_cirugia_prop.get("name", "") if tipo_cirugia_prop else ""
-            
+
             estado_prop = props.get("Estado", {}).get("select", {})
             estado = estado_prop.get("name", "Pendiente") if estado_prop else "Pendiente"
-            
+
             poliza_relation = props.get("Número Póliza", {}).get("relation", [])
             numero_poliza = poliza_relation[0].get("id", "") if poliza_relation else ""
-            
+
             fecha_sol = props.get("Fecha Solicitada", {}).get("date", {})
             fecha_solicitada = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
-            
-            # Leer URL del informe: primero rich_text (respaldo fiable), luego campo url
-            informe_url_backup = _get_rich_text(props.get("Informe Médico URL", {}))
+
             informe_url_field = props.get("Informe Médico", {}).get("url") or ""
-            # Preferir el rich_text si el campo url está truncado (sin http)
-            if informe_url_backup and informe_url_backup.startswith("http"):
-                informe_url = informe_url_backup
-            elif informe_url_field and informe_url_field.startswith("http"):
-                informe_url = informe_url_field
-            else:
-                informe_url = None
-            
+            informe_url = informe_url_field if informe_url_field.startswith("http") else None
+
+            # Campos de decisión IA
+            razonamiento = _get_rich_text(props.get("Razonamiento", {})) or None
+
+            score_prop = props.get("Score Confianza", {}).get("number")
+            score_confianza = float(score_prop) if score_prop is not None else None
+
+            tiempo_prop = props.get("Tiempo Procesamiento", {}).get("number")
+            tiempo_procesamiento = float(tiempo_prop) if tiempo_prop is not None else None
+
+            fecha_resp_obj = props.get("Fecha Respuesta", {}).get("date", {})
+            fecha_resp_str = fecha_resp_obj.get("start") if fecha_resp_obj else None
+            fecha_respuesta = datetime.fromisoformat(fecha_resp_str.replace("Z", "+00:00")) if fecha_resp_str else None
+
+            decision_ia_text = _get_rich_text(props.get("Decisión IA", {}))
+            try:
+                decision_ia = json.loads(decision_ia_text) if decision_ia_text else None
+            except Exception:
+                decision_ia = None
+
+            docs_faltantes_prop = props.get("Documentos Faltantes", {}).get("multi_select", [])
+            documentos_faltantes = [d.get("name", "") for d in docs_faltantes_prop] if docs_faltantes_prop else []
+
             return SolicitudAutorizacion(
                 id_solicitud=id_solicitud,
                 paciente_nombre=paciente_nombre,
@@ -308,7 +321,13 @@ class NotionService:
                 hospital=hospital_name,
                 medico_tratante=medico,
                 informe_medico_url=informe_url,
-                estado=estado
+                estado=estado,
+                razonamiento=razonamiento,
+                score_confianza=score_confianza,
+                tiempo_procesamiento=tiempo_procesamiento,
+                fecha_respuesta=fecha_respuesta,
+                decision_ia=decision_ia,
+                documentos_faltantes=documentos_faltantes,
             )
         except Exception as e:
             print(f"[ERROR] Error parseando página de Notion: {e}")
