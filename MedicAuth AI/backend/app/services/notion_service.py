@@ -2,7 +2,7 @@
 Servicio para integración con Notion API
 """
 
-from notion_client import Client
+from notion_client import AsyncClient
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
@@ -10,18 +10,35 @@ import json
 from app.core.config import settings
 from app.models.authorization import SolicitudAutorizacion, Poliza
 
+
+def _get_rich_text(prop: dict) -> str:
+    """Extrae texto enriquecido de forma segura, incluso si está vacío"""
+    arr = prop.get("rich_text", [])
+    if arr and len(arr) > 0:
+        return arr[0].get("text", {}).get("content", "")
+    return ""
+
+def _get_title(prop: dict) -> str:
+    """Extrae el título de forma segura"""
+    arr = prop.get("title", [])
+    if arr and len(arr) > 0:
+        return arr[0].get("text", {}).get("content", "")
+    return ""
+
+
 class NotionService:
     """Cliente para interactuar con Notion"""
     
     def __init__(self):
-        self.client = Client(auth=settings.NOTION_TOKEN)
+        # USAR ASYNCCLIENT PARA NO BLOQUEAR FASTAPI
+        self.client = AsyncClient(auth=settings.NOTION_TOKEN)
         self.solicitudes_db_id = settings.NOTION_SOLICITUDES_DB_ID
         self.polizas_db_id = settings.NOTION_POLIZAS_DB_ID
     
     async def get_pending_authorizations(self) -> List[Dict[str, Any]]:
         """Obtiene todas las solicitudes pendientes"""
         try:
-            response = self.client.databases.query(
+            response = await self.client.databases.query(
                 database_id=self.solicitudes_db_id,
                 filter={
                     "property": "Estado",
@@ -34,11 +51,28 @@ class NotionService:
         except Exception as e:
             print(f"[ERROR] Error obteniendo solicitudes pendientes: {e}")
             return []
+            
+    async def query_authorizations_by_status(self, status: str) -> List[Dict[str, Any]]:
+        """Obtiene solicitudes filtradas por estado (Para estadísticas)"""
+        try:
+            response = await self.client.databases.query(
+                database_id=self.solicitudes_db_id,
+                filter={
+                    "property": "Estado",
+                    "select": {
+                        "equals": status
+                    }
+                }
+            )
+            return response.get("results", [])
+        except Exception as e:
+            print(f"[ERROR] Error consultando por estado {status}: {e}")
+            return []
     
     async def get_authorization_by_id(self, page_id: str) -> Optional[Dict[str, Any]]:
         """Obtiene una solicitud específica por ID"""
         try:
-            page = self.client.pages.retrieve(page_id=page_id)
+            page = await self.client.pages.retrieve(page_id=page_id)
             return page
         except Exception as e:
             print(f"[ERROR] Error obteniendo solicitud {page_id}: {e}")
@@ -46,16 +80,19 @@ class NotionService:
     
     async def get_policy_by_number(self, policy_number: str) -> Optional[Dict[str, Any]]:
         """Busca una póliza por número o por ID de página directo"""
+        if not policy_number:
+            return None
+            
         try:
             clean_id = policy_number.replace("-", "").strip()
             if len(clean_id) == 32 and all(c in "0123456789abcdef" for c in clean_id):
                 try:
-                    page = self.client.pages.retrieve(page_id=policy_number)
+                    page = await self.client.pages.retrieve(page_id=policy_number)
                     return page
                 except Exception as retrieve_err:
-                    print(f"[WARNING] No se pudo recuperar póliza directamente por ID ({policy_number}): {retrieve_err}")
+                    print(f"[WARNING] No se pudo recuperar póliza por ID ({policy_number}): {retrieve_err}")
             
-            response = self.client.databases.query(
+            response = await self.client.databases.query(
                 database_id=self.polizas_db_id,
                 filter={
                     "property": "Número Póliza",
@@ -128,7 +165,7 @@ class NotionService:
                     ]
                 }
             
-            self.client.pages.update(
+            await self.client.pages.update(
                 page_id=page_id,
                 properties=properties
             )
@@ -146,18 +183,22 @@ class NotionService:
             props = page.get("properties", {})
             id_solicitud = page.get("id", "")
             
-            titulo = props.get("ID Solicitud", {})
-            id_text = titulo.get("title", [{}])[0].get("text", {}).get("content", "")
+            # Usando helpers seguros para evitar list index out of range
+            paciente_nombre = _get_rich_text(props.get("Paciente Nombre", {}))
+            cedula = _get_rich_text(props.get("Cédula", {}))
+            medico = _get_rich_text(props.get("Médico Tratante", {}))
             
-            paciente_nombre = props.get("Paciente Nombre", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
-            cedula = props.get("Cédula", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
-            medico = props.get("Médico Tratante", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
-            hospital = props.get("Hospital", {}).get("select", {}).get("name", "")
+            hospital = props.get("Hospital", {}).get("select", {})
+            hospital_name = hospital.get("name", "") if hospital else ""
             
-            edad = props.get("Edad", {}).get("number", 0)
+            edad = props.get("Edad", {}).get("number")
+            edad = edad if edad is not None else 0
             
-            tipo_cirugia = props.get("Tipo Cirugía", {}).get("select", {}).get("name", "")
-            estado = props.get("Estado", {}).get("select", {}).get("name", "Pendiente")
+            tipo_cirugia_prop = props.get("Tipo Cirugía", {}).get("select", {})
+            tipo_cirugia = tipo_cirugia_prop.get("name", "") if tipo_cirugia_prop else ""
+            
+            estado_prop = props.get("Estado", {}).get("select", {})
+            estado = estado_prop.get("name", "Pendiente") if estado_prop else "Pendiente"
             
             poliza_relation = props.get("Número Póliza", {}).get("relation", [])
             numero_poliza = poliza_relation[0].get("id", "") if poliza_relation else ""
@@ -176,7 +217,7 @@ class NotionService:
                 numero_poliza=numero_poliza,
                 tipo_cirugia=tipo_cirugia,
                 fecha_solicitada=datetime.fromisoformat(fecha_solicitada.replace("Z", "+00:00")),
-                hospital=hospital,
+                hospital=hospital_name,
                 medico_tratante=medico,
                 informe_medico_url=informe_url,
                 estado=estado
@@ -190,20 +231,28 @@ class NotionService:
         try:
             props = page.get("properties", {})
             
-            numero_poliza = props.get("Número Póliza", {}).get("title", [{}])[0].get("text", {}).get("content", "")
-            aseguradora = props.get("Aseguradora", {}).get("select", {}).get("name", "")
-            titular = props.get("Titular", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
-            tipo_plan = props.get("Tipo Plan", {}).get("select", {}).get("name", "Básico")
-            estado = props.get("Estado", {}).get("select", {}).get("name", "Activa")
-            carencia_dias = props.get("Carencia Días", {}).get("number", 0)
+            numero_poliza = _get_title(props.get("Número Póliza", {}))
+            titular = _get_rich_text(props.get("Titular", {}))
             
-            coberturas_text = props.get("Coberturas", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "{}")
+            aseguradora_prop = props.get("Aseguradora", {}).get("select", {})
+            aseguradora = aseguradora_prop.get("name", "") if aseguradora_prop else ""
+            
+            tipo_plan_prop = props.get("Tipo Plan", {}).get("select", {})
+            tipo_plan = tipo_plan_prop.get("name", "Básico") if tipo_plan_prop else "Básico"
+            
+            estado_prop = props.get("Estado", {}).get("select", {})
+            estado = estado_prop.get("name", "Activa") if estado_prop else "Activa"
+            
+            carencia_dias = props.get("Carencia Días", {}).get("number")
+            carencia_dias = carencia_dias if carencia_dias is not None else 0
+            
+            coberturas_text = _get_rich_text(props.get("Coberturas", {}))
             try:
-                coberturas = json.loads(coberturas_text)
+                coberturas = json.loads(coberturas_text) if coberturas_text else {}
             except:
                 coberturas = {}
             
-            exclusiones_text = props.get("Exclusiones", {}).get("rich_text", [{}])[0].get("text", {}).get("content", "")
+            exclusiones_text = _get_rich_text(props.get("Exclusiones", {}))
             exclusiones = [e.strip() for e in exclusiones_text.split(",") if e.strip()]
             
             fecha_inicio_obj = props.get("Fecha Inicio", {}).get("date", {})
