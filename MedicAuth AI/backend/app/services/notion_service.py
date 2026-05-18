@@ -196,9 +196,6 @@ class NotionService:
             if doc_url and not doc_url.startswith("http"):
                 doc_url = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/raw/upload/{doc_url}"
             properties["Documento Póliza"] = {"url": doc_url}
-            properties["Documento Póliza URL"] = {
-                "rich_text": [{"text": {"content": doc_url}}]
-            }
             print(f"[INFO] Documento Póliza guardado: {doc_url}")
         try:
             new_page = await self.client.pages.create(
@@ -244,16 +241,9 @@ class NotionService:
             
         if data.informe_medico_url:
             informe_url = data.informe_medico_url.strip()
-            # Si llega solo el public_id (sin dominio), reconstruir la URL completa
             if informe_url and not informe_url.startswith("http"):
                 informe_url = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/raw/upload/{informe_url}"
-                print(f"[WARNING] URL de informe reconstruida: {informe_url}")
-            # Campo tipo URL (puede truncarse en Notion con rutas /raw/upload/)
             properties["Informe Médico"] = {"url": informe_url}
-            # Respaldo en rich_text para garantizar la URL completa
-            properties["Informe Médico URL"] = {
-                "rich_text": [{"text": {"content": informe_url}}]
-            }
             print(f"[INFO] Informe Médico guardado en Notion: {informe_url}")
             
         try:
