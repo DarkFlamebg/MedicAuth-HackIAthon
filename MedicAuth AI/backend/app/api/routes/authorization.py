@@ -70,18 +70,33 @@ async def analizar_pdf_con_gemini(pdf_url: str, nombre_archivo: str) -> dict:
 
 @router.get("/pending")
 async def get_pending_authorizations():
-    """Obtiene todas las solicitudes pendientes"""
+    """Obtiene todas las solicitudes pendientes con datos de póliza"""
     try:
         results = await notion_service.get_pending_authorizations()
         solicitudes = []
         for page in results:
             solicitud = notion_service.parse_notion_page_to_solicitud(page)
             if solicitud:
-                solicitudes.append(solicitud.model_dump())
+                data = solicitud.model_dump()
+                
+                # Buscar y adjuntar datos de la póliza
+                if solicitud.numero_poliza:
+                    poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
+                    if poliza_page:
+                        poliza = notion_service.parse_notion_page_to_poliza(poliza_page)
+                        if poliza:
+                            data["poliza"] = poliza.model_dump()
+                        else:
+                            data["poliza"] = None
+                    else:
+                        data["poliza"] = None
+                else:
+                    data["poliza"] = None
+                    
+                solicitudes.append(data)
         return {"count": len(solicitudes), "solicitudes": solicitudes}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/stats/summary")
 async def get_authorization_stats():
@@ -160,8 +175,8 @@ async def upload_pdf(file: UploadFile = File(...)):
             folder="medicauth_pdfs",
             public_id=public_id_final,
             overwrite=False,
-            access_mode="public",  # Indica acceso público global
-            content_disposition="inline"  # Fuerza visualización en lugar de descarga
+            access_mode="public",  
+            content_disposition="inline" 
         )
         
         pdf_url = result.get("secure_url")
@@ -191,7 +206,7 @@ async def create_authorization_with_pdf(
     pdf_file: UploadFile = File(None)
 ):
     """
-    ✅ ENDPOINT COMPLETO: Sube PDF a Cloudinary + Crea solicitud en Notion en UN PASO
+    ENDPOINT COMPLETO: Sube PDF a Cloudinary + Crea solicitud en Notion en UN PASO
     
     Si pdf_file está presente: Sube a Cloudinary y pone la URL en Notion
     Si no: Usa informe_medico_url si viene en solicitud_data
