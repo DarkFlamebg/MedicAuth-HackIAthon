@@ -55,13 +55,11 @@ async def nodo_extractor_medico(state: AuthorizationState) -> Dict[str, Any]:
     solicitud = state["solicitud"]
     pdf_url = state.get("informe_medico_url")
     
-    # Configuramos el SDK nativo de Google
     genai.configure(api_key=settings.GEMINI_API_KEY)
     
     archivo_gemini = None
     tmp_path = None
 
-    # Si hay una URL válida de Cloudinary, descargamos y creamos el puntero temporal para Gemini
     if pdf_url:
         try:
             async with httpx.AsyncClient() as client:
@@ -95,22 +93,19 @@ async def nodo_extractor_medico(state: AuthorizationState) -> Dict[str, Any]:
     3. Confirma si el informe cuenta de manera visible con la firma y/o sello del médico tratante.
     4. Extrae los hallazgos clínicos que justifican el procedimiento.
     
-    Responde estrictamente en formato JSON válido:
+    Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin bloques de código), usando exactamente esta estructura:
     {{
-        "paciente_coincide": true/false,
+        "paciente_coincide": true,
         "diagnostico_principal": "Texto del diagnóstico",
         "cie10": "Código CIE-10",
-        "tiene_firma_sello": true/false,
-        "justificacion_clinica_encontrada": true/false,
+        "tiene_firma_sello": true,
+        "justificacion_clinica_encontrada": true,
         "resumen_justificacion": "Breve resumen de la condición médica"
     }}
     """
     
-    # >>> FIX CRÍTICO: Usar SDK nativo de Google, NO LangChain, para enviar el File object <<<
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
-        
-        # Construimos el contenido: [archivo, prompt] o solo [prompt] si no hay archivo
         contenido = [archivo_gemini, prompt] if archivo_gemini else [prompt]
         
         response = await asyncio.to_thread(
@@ -134,10 +129,8 @@ async def nodo_extractor_medico(state: AuthorizationState) -> Dict[str, Any]:
             "resumen_justificacion": "Error al procesar el JSON de salida."
         }
     finally:
-        # Limpieza inmediata del archivo temporal local en el servidor
         if tmp_path:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
-        # Limpieza del archivo en Gemini (opcional pero recomendado)
         if archivo_gemini:
             try:
                 genai.delete_file(archivo_gemini.name)
@@ -154,7 +147,6 @@ async def nodo_auditor_legal_tarifario(state: AuthorizationState) -> Dict[str, A
     poliza = state["poliza"]
     datos_medicos = state["datos_medicos_extraidos"] or {}
     
-    # Calcular días transcurridos desde el inicio de la póliza hasta la cirugía
     dias_desde_inicio = (solicitud.fecha_solicitada.replace(tzinfo=None) - poliza.fecha_inicio.replace(tzinfo=None)).days
     carencia_superada = dias_desde_inicio >= poliza.carencia_dias
     
@@ -175,32 +167,38 @@ async def nodo_auditor_legal_tarifario(state: AuthorizationState) -> Dict[str, A
     1. Según el Art. 31 de la Ley de Medicina Prepagada, si el caso constituye una EMERGENCIA MÉDICA VITAL que compromete la vida del paciente, no se pueden aplicar periodos de carencia ni exclusiones de preexistencias de forma inmediata.
     2. Valida si el tipo de cirugía o el diagnóstico clínico se encuentran textualmente o por asociación directa en la lista de exclusiones de la póliza.
     
-    Responde estrictamente en formato JSON válido con la siguiente estructura:
+    Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin bloques de código), usando exactamente esta estructura:
     {{
-        "procedimiento_cubierto": true/false,
+        "procedimiento_cubierto": true,
         "clausulas_aplicadas": ["Lista de exclusiones o coberturas evaluadas"],
-        "aplica_emergencia_vital_art31": true/false,
+        "aplica_emergencia_vital_art31": true,
         "motivo_legal_auditoria": "Explicación clara sustentada en las pólizas y la ley",
-        "documentos_faltantes_detectados": ["Cédula", "Exámenes de Laboratorio", etc. Si aplica, sino dejar vacío]
+        "documentos_faltantes_detectados": []
     }}
     """
     
-    # Este nodo es puro texto, LangChain funciona bien aquí
-    llm = _get_llm()
-    response = await asyncio.to_thread(
-        lambda: llm.invoke(prompt, response_format={"type": "json_object"})
-    )
     try:
-        resultado = json.loads(response.content)
-    except Exception:
+        llm = _get_llm()
+        # >>> FIX: Quitamos response_format, confiamos en el prompt + parseo manual <<<
+        response = await asyncio.to_thread(lambda: llm.invoke(prompt))
+        
+        texto = response.content.strip()
+        texto_limpio = re.sub(r"```json|```", "", texto).strip()
+        
+        resultado = json.loads(texto_limpio)
+        print("[AGENTE 2] Auditoría legal completada")
+        
+    except Exception as e:
+        print(f"[ERROR] Falló auditoría legal: {e}")
         resultado = {
-            "procedimiento_cubierto": False, "clausulas_aplicadas": [],
-            "aplica_emergencia_vital_art31": False, "motivo_legal_auditoria": "Error de parsing en nodo legal",
+            "procedimiento_cubierto": False, 
+            "clausulas_aplicadas": [],
+            "aplica_emergencia_vital_art31": False, 
+            "motivo_legal_auditoria": "Error de parsing en nodo legal",
             "documentos_faltantes_detectados": []
         }
         
     return {"auditoria_cobertura_legal": resultado}
-
 
 async def nodo_supervisor_critico(state: AuthorizationState) -> Dict[str, Any]:
     """Nodo Supervisor (Self-Reflection): Control de calidad de la decisión final antes de emitir veredicto"""
