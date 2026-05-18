@@ -37,7 +37,7 @@ class AuthorizationState(TypedDict):
     decision_final: Optional[Dict[str, Any]]
     tiempo_inicio: float
 
-# Factory para crear instancias de LLM por nodo
+# Factory para crear instancias de LLM por nodo (SOLO PARA NODOS DE TEXTO)
 def _get_llm():
     """Crea una nueva instancia de ChatGoogleGenerativeAI para cada nodo"""
     return ChatGoogleGenerativeAI(
@@ -55,7 +55,7 @@ async def nodo_extractor_medico(state: AuthorizationState) -> Dict[str, Any]:
     solicitud = state["solicitud"]
     pdf_url = state.get("informe_medico_url")
     
-    # Configuramos el SDK nativo de Google por si necesitamos subir el archivo temporal
+    # Configuramos el SDK nativo de Google
     genai.configure(api_key=settings.GEMINI_API_KEY)
     
     archivo_gemini = None
@@ -106,31 +106,44 @@ async def nodo_extractor_medico(state: AuthorizationState) -> Dict[str, Any]:
     }}
     """
     
-    # Preparamos el payload combinando el archivo de Gemini (si existe) o usando el contexto de texto libre
-    payload = []
-    if archivo_gemini:
-        payload.append(archivo_gemini)
-    payload.append(prompt)
-    
-    # Invocamos la llamada estructurada (usando factory para nueva instancia)
-    llm = _get_llm()
-    response = await asyncio.to_thread(
-        lambda: llm.invoke(payload, response_format={"type": "json_object"})
-    )
-    
-    # Limpieza inmediata del archivo temporal local en el servidor
-    if tmp_path:
-        pathlib.Path(tmp_path).unlink(missing_ok=True)
-        
+    # >>> FIX CRÍTICO: Usar SDK nativo de Google, NO LangChain, para enviar el File object <<<
     try:
-        resultado = json.loads(response.content)
-    except Exception:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        # Construimos el contenido: [archivo, prompt] o solo [prompt] si no hay archivo
+        contenido = [archivo_gemini, prompt] if archivo_gemini else [prompt]
+        
+        response = await asyncio.to_thread(
+            lambda: model.generate_content(contenido)
+        )
+        
+        texto_respuesta = response.text.strip()
+        texto_limpio = re.sub(r"```json|```", "", texto_respuesta).strip()
+        
+        resultado = json.loads(texto_limpio)
+        print("[AGENTE 1] Extracción médica completada vía SDK nativo")
+        
+    except Exception as e:
+        print(f"[ERROR] Falló extracción con SDK nativo: {e}")
         resultado = {
-            "paciente_coincide": False, "diagnostico_principal": "Error de parsing",
-            "cie10": "N/A", "tiene_firma_sello": False, "justificacion_clinica_encontrada": False,
+            "paciente_coincide": False, 
+            "diagnostico_principal": "Error de parsing",
+            "cie10": "N/A", 
+            "tiene_firma_sello": False, 
+            "justificacion_clinica_encontrada": False,
             "resumen_justificacion": "Error al procesar el JSON de salida."
         }
-        
+    finally:
+        # Limpieza inmediata del archivo temporal local en el servidor
+        if tmp_path:
+            pathlib.Path(tmp_path).unlink(missing_ok=True)
+        # Limpieza del archivo en Gemini (opcional pero recomendado)
+        if archivo_gemini:
+            try:
+                genai.delete_file(archivo_gemini.name)
+            except Exception:
+                pass
+                
     return {"datos_medicos_extraidos": resultado}
 
 
@@ -172,6 +185,7 @@ async def nodo_auditor_legal_tarifario(state: AuthorizationState) -> Dict[str, A
     }}
     """
     
+    # Este nodo es puro texto, LangChain funciona bien aquí
     llm = _get_llm()
     response = await asyncio.to_thread(
         lambda: llm.invoke(prompt, response_format={"type": "json_object"})
