@@ -279,23 +279,6 @@ async def create_authorization(solicitud: SolicitudCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/{page_id}")
-async def get_authorization_details(page_id: str):
-    """Obtiene detalles de una solicitud específica"""
-    try:
-        page = await notion_service.get_authorization_by_id(page_id)
-        if not page:
-            raise HTTPException(status_code=404, detail="Solicitud no encontrada")
-        solicitud = notion_service.parse_notion_page_to_solicitud(page)
-        if not solicitud:
-            raise HTTPException(status_code=500, detail="Error parseando solicitud")
-        return solicitud.model_dump()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/resolved")
 async def get_resolved_authorizations():
     """Obtiene solicitudes resueltas: aprobadas, rechazadas y docs faltantes"""
@@ -327,3 +310,20 @@ async def get_resolved_authorizations():
         return {"count": len(solicitudes), "solicitudes": solicitudes}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{page_id}")
+async def get_authorization_details(page_id: str):
+    """Obtiene detalles de una solicitud específica"""
+    try:
+        page = await notion_service.get_authorization_by_id(page_id)
+        if not page:
+            raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+        solicitud = notion_service.parse_notion_page_to_solicitud(page)
+        if not solicitud:
+            raise HTTPException(status_code=500, detail="Error parseando solicitud")
+        return solicitud.model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
