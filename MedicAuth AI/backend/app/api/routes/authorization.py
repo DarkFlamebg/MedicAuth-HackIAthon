@@ -295,3 +295,35 @@ async def get_authorization_details(page_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/resolved")
+async def get_resolved_authorizations():
+    """Obtiene solicitudes resueltas: aprobadas, rechazadas y docs faltantes"""
+    try:
+        import asyncio
+        results = await asyncio.gather(
+            notion_service.query_authorizations_by_status("Aprobado"),
+            notion_service.query_authorizations_by_status("Rechazado"),
+            notion_service.query_authorizations_by_status("Documentos Faltantes"),
+        )
+
+        solicitudes = []
+        for pages in results:
+            for page in pages:
+                solicitud = notion_service.parse_notion_page_to_solicitud(page)
+                if solicitud:
+                    data = solicitud.model_dump()
+                    if solicitud.numero_poliza:
+                        poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
+                        if poliza_page:
+                            poliza = notion_service.parse_notion_page_to_poliza(poliza_page)
+                            data["poliza"] = poliza.model_dump() if poliza else None
+                        else:
+                            data["poliza"] = None
+                    solicitudes.append(data)
+
+        solicitudes.sort(key=lambda x: x.get("fecha_respuesta") or "", reverse=True)
+
+        return {"count": len(solicitudes), "solicitudes": solicitudes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -18,10 +18,6 @@ router = APIRouter(
     dependencies=[Depends(rate_limiter_in_memory(times=7, seconds=1))]
 )
 
-# ------------------------------------------------------------------
-# Extracción de page_id
-# ------------------------------------------------------------------
-
 def _extract_page_id(payload: Dict[str, Any]) -> Optional[str]:
     """
     Extrae el page_id real desde el payload del webhook.
@@ -70,11 +66,6 @@ def _extract_page_id(payload: Dict[str, Any]) -> Optional[str]:
 
     return None
 
-
-# ------------------------------------------------------------------
-# Endpoints
-# ------------------------------------------------------------------
-
 @router.post("/notion")
 async def handle_notion_webhook(
     payload: Dict[str, Any],
@@ -112,10 +103,7 @@ async def trigger_from_notion_url(
     body: Dict[str, Any],
     background_tasks: BackgroundTasks
 ):
-    """
-    Dispara el procesamiento pasando directamente la URL de Notion.
-    Body: {"url": "https://www.notion.so/REQ-002-362e23da..."}
-    """
+
     url = body.get("url", "")
     if not url:
         raise HTTPException(status_code=400, detail="Campo 'url' requerido")
@@ -141,11 +129,6 @@ async def test_webhook():
         "notion_configured": bool(notion_service.solicitudes_db_id)
     }
 
-
-# ------------------------------------------------------------------
-# Procesamiento principal
-# ------------------------------------------------------------------
-
 async def process_authorization_request(page_id: str):
     """Procesa una solicitud de autorización completa"""
     start_time = time.time()
@@ -167,7 +150,6 @@ async def process_authorization_request(page_id: str):
 
         print(f"[INFO] Solicitud: {solicitud.paciente_nombre} - {solicitud.tipo_cirugia}")
 
-        # 3. ── VALIDACIÓN ROBUSTA ──────────────────────────────────────
         validacion = validar_solicitud_completa(solicitud)
 
         if validacion.advertencias:
@@ -189,7 +171,6 @@ async def process_authorization_request(page_id: str):
                 processing_time=time.time() - start_time
             )
             return
-        # ─────────────────────────────────────────────────────────────
 
         # 4. Buscar póliza
         poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
