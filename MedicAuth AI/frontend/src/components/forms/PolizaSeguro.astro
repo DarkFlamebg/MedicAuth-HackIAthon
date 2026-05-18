@@ -1,0 +1,71 @@
+---
+import Input from '../ui/Input.astro';
+import Select from '../ui/Select.astro';
+
+import {ShieldCheck } from '@lucide/astro';
+---
+
+<section class="bg-slate-700 rounded-xl p-6">
+	
+	<div class="flex gap-4 items-center">
+		<ShieldCheck size={48} color="#46BE8C"/>
+		<h2 class="text-xl uppercase font-semibold mb-6">
+			poliza de seguro
+		</h2>
+	</div>
+
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+		<Input
+			label="Número de póliza"
+			name="numero_poliza"
+			placeholder='POL-2026-XXX'
+			required
+		/>
+
+		<Input
+			label="Titular de Poliza"
+			name="titular"
+			placeholder='Carlos Espinoza'
+			required
+		/>
+
+		<Select
+			label="Aseguradora"
+			name="aseguradora"
+			required
+			options={[
+				'BMI',
+				'Salud S.A',
+				'BlueCross',
+				'Pan-American Life'
+			]}
+		/>
+
+		<Select
+			label="Tipo de Plan"
+			name="plan"
+			required
+			options={[
+				'Básico',
+				'Premium',
+				'VIP',
+				'Ambulatorio',
+				'Hospitalario',
+				'Maternidad',
+				'Dental',
+				'Internacional',
+				'Corporativo',
+				'Familiar',
+			]}
+		/>
+
+		<Input
+			label="Exclusiones"
+			name="exclusiones"
+			placeholder='Esta poliza no cubre ...'
+			required
+		/>
+
+	</div>
+</section>

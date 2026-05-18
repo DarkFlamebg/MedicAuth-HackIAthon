@@ -1,0 +1,60 @@
+---
+import Select from '../ui/Select.astro';
+import DateInput from '../ui/DateInput.astro';
+
+import {Building2} from '@lucide/astro';
+---
+
+<section class="bg-slate-700 rounded-xl p-6">
+	
+    <div class="flex gap-4 items-center">
+        <Building2 size={48} color="#46BE8C"/>
+        <h2 class="text-xl uppercase font-semibold mb-6">
+            Cirugía y centro médico
+        </h2>
+    </div>
+
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+		<Select
+			label="Tipo de cirugía"
+			name="tipo_cirugia"
+			required
+			options={[
+				'Cardiovascular',
+				'Ortopédica',
+				'Neurológica',
+				'Estética'
+			]}
+		/>
+
+		<Select
+			label="Hospital"
+			name="hospital"
+			required
+			options={[
+				'Hospital Metropolitano',
+				'Clínica Kennedy',
+				'Hospital Alcívar'
+			]}
+		/>
+
+		<DateInput
+			label="Fecha solicitada"
+			name="fecha_solicitada"
+			required
+		/>
+
+		<Select
+			label="Urgencia"
+			name="urgencia"
+			required
+			options={[
+				'Baja',
+				'Media',
+				'Alta'
+			]}
+		/>
+
+	</div>
+</section>

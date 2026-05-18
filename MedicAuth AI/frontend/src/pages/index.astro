@@ -1,0 +1,158 @@
+---
+import CirugiaCentroMedico from "../components/forms/CirugiaCentroMedico.astro";
+import DatosClientes from "../components/forms/DatosClientes.astro";
+import Documentos from "../components/forms/Documentos.astro";
+import PolizaSeguro from "../components/forms/PolizaSeguro.astro";
+import Header from "../components/Header.astro";
+import Layout from "../layouts/Layout.astro";
+
+import { Stethoscope } from "@lucide/astro";
+---
+
+<Layout>
+	<Header />
+
+	<section class="space-y-2 mb-8">
+		<div class="flex gap-4 items-center text-3xl">
+			<Stethoscope size={64} color="#D0D0D1" />
+			<h1>Nueva solicitud de autorización</h1>
+		</div>
+
+		<p class="text-slate-400">
+			Completa los campos obligatorios antes de enviar la solicitud para
+			revisión clínica
+		</p>
+	</section>
+	<form id="medical-form" class="space-y-8">
+		<DatosClientes />
+		<CirugiaCentroMedico />
+		<PolizaSeguro />
+		<Documentos />
+		<div class="flex justify-end gap-8 text-xl font-semibold">
+			<button
+				type="button"
+				class="border hover:bg-slate-500 hover:text-white transition-colors ease-in px-8 py-2 rounded-lg cursor-pointer"
+				>Cancelar</button
+			>
+			<button
+				type="submit"
+				class="bg-blue-500 hover:bg-blue-700 transition-colors ease-in text-white px-8 py-2 rounded-lg cursor-pointer"
+				>Enviar Solicitud</button
+			>
+		</div>
+	</form>
+</Layout>
+
+<script>
+	const form = document.getElementById("medical-form");
+
+	if (!(form instanceof HTMLFormElement)) {
+		throw new Error('No se encontró el formulario con id "medical-form"');
+	}
+
+	form.addEventListener("submit", async (e) => {
+		e.preventDefault();
+
+		try {
+			const formData = new FormData(form);
+
+			// PDF
+			const informe = formData.get("informe_medico_url");
+
+			if (!(informe instanceof File)) {
+				alert("Debes subir un PDF");
+				return;
+			}
+
+			// PAYLOAD FINAL
+			const data = {
+				paciente_nombre: formData
+					.get("paciente_nombre")
+					?.toString()
+					.trim(),
+
+				cedula: formData.get("cedula")?.toString().trim(),
+
+				edad: Number(formData.get("edad")),
+
+				numero_poliza: formData.get("numero_poliza")?.toString().trim(),
+
+				tipo_cirugia: formData.get("tipo_cirugia")?.toString().trim(),
+
+				hospital: formData.get("hospital")?.toString().trim(),
+
+				medico_tratante: formData
+					.get("medico_tratante")
+					?.toString()
+					.trim(),
+
+				fecha_solicitada: formData.get("fecha_solicitada"),
+
+				// URL HARDCODEADA TEMPORAL
+				informe_medico_url: "https://fake-storage.com/informe.pdf",
+
+				poliza_data: {
+					aseguradora: formData.get("aseguradora")?.toString().trim(),
+
+					titular: formData.get("titular")?.toString().trim(),
+
+					tipo_plan: formData.get("plan")?.toString().trim(),
+
+					coberturas: {},
+
+					exclusiones: [
+						formData.get("exclusiones")?.toString().trim(),
+					],
+
+					carencia_dias: 30,
+
+					fecha_inicio: "2025-01-01",
+
+					fecha_fin: "2026-01-01",
+				},
+			};
+
+			// DEBUG JSON
+			console.log("JSON RESULTADO:");
+			console.log(data);
+
+			console.log(JSON.stringify(data, null, 2));
+
+			// REQUEST API
+			const response = await fetch(
+				"https://medicauth-hackiathon.onrender.com/api/authorization/create",
+				{
+					method: "POST",
+
+					headers: {
+						"Content-Type": "application/json",
+					},
+
+					body: JSON.stringify(data),
+				},
+			);
+
+			// RESPONSE JSON
+			const result = await response.json();
+
+			console.log("API RESPONSE:");
+			console.log(result);
+
+			alert("Solicitud enviada correctamente");
+
+			// LIMPIAR FORMULARIO
+			form.reset();
+
+			// LIMPIAR NOMBRES DE ARCHIVOS
+			document.querySelectorAll('[id^="filename-"]').forEach((el) => {
+				el.textContent = "";
+				el.classList.add("hidden");
+			});
+		} catch (error) {
+			console.error("ERROR:");
+			console.error(error);
+
+			alert("Ocurrió un error al enviar la solicitud");
+		}
+	});
+</script>
