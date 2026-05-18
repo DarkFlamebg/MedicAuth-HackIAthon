@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 from app.core.config import settings
-from app.models.authorization import SolicitudAutorizacion, Poliza
+from app.models.authorization import SolicitudAutorizacion, Poliza, SolicitudCreate
 
 
 def _get_rich_text(prop: dict) -> str:
@@ -176,6 +176,51 @@ class NotionService:
         except Exception as e:
             print(f"[ERROR] Error actualizando solicitud {page_id}: {e}")
             return False
+            
+    async def create_authorization_request(self, data: SolicitudCreate) -> Optional[str]:
+        """Crea una nueva solicitud en Notion y devuelve el page_id"""
+        import random
+        req_id = f"REQ-{random.randint(1000, 9999)}"
+        
+        poliza = await self.get_policy_by_number(data.numero_poliza)
+        poliza_id = poliza["id"] if poliza else ""
+        
+        properties = {
+            "ID Solicitud": {"title": [{"text": {"content": req_id}}]},
+            "Paciente Nombre": {"rich_text": [{"text": {"content": data.paciente_nombre}}]},
+            "Cédula": {"rich_text": [{"text": {"content": data.cedula}}]},
+            "Médico Tratante": {"rich_text": [{"text": {"content": data.medico_tratante}}]},
+            "Edad": {"number": data.edad},
+            "Fecha Solicitada": {"date": {"start": data.fecha_solicitada}},
+            "Tipo Cirugía": {"select": {"name": data.tipo_cirugia}},
+            "Hospital": {"select": {"name": data.hospital}},
+            "Estado": {"select": {"name": "Pendiente"}},
+        }
+        
+        if poliza_id:
+            properties["Número Póliza"] = {"relation": [{"id": poliza_id}]}
+            
+        if data.informe_medico_url:
+            properties["Informe Médico"] = {
+                "files": [
+                    {
+                        "type": "external",
+                        "name": "Informe_Medico.pdf",
+                        "external": {"url": data.informe_medico_url}
+                    }
+                ]
+            }
+            
+        try:
+            new_page = await self.client.pages.create(
+                parent={"database_id": self.solicitudes_db_id},
+                properties=properties
+            )
+            print(f"[SUCCESS] Solicitud creada en Notion con ID: {req_id}")
+            return new_page["id"]
+        except Exception as e:
+            print(f"[ERROR] Error al crear solicitud en Notion: {e}")
+            return None
     
     def parse_notion_page_to_solicitud(self, page: Dict[str, Any]) -> Optional[SolicitudAutorizacion]:
         """Convierte una página de Notion a modelo SolicitudAutorizacion"""

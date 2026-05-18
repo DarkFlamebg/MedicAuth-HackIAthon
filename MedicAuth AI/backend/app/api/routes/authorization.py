@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import List
+from app.models.authorization import SolicitudCreate
 from app.services.notion_service import notion_service
 from app.core.dependencies import rate_limiter_in_memory
 
@@ -71,6 +72,33 @@ async def get_authorization_stats():
             "tiempo_promedio_segundos": tiempo_promedio,
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/create", status_code=201)
+async def create_authorization(
+    solicitud: SolicitudCreate, 
+    background_tasks: BackgroundTasks
+):
+    """Crea una nueva solicitud en Notion y dispara el análisis IA"""
+    try:
+        page_id = await notion_service.create_authorization_request(solicitud)
+        
+        if not page_id:
+            raise HTTPException(status_code=500, detail="No se pudo crear la solicitud en Notion")
+            
+        # Importar aquí para evitar referencias circulares si webhook depende de algo más
+        from app.api.routes.webhook import process_authorization_request
+        
+        # Encolar el procesamiento de IA
+        background_tasks.add_task(process_authorization_request, page_id)
+        
+        return {
+            "status": "success", 
+            "message": "Solicitud creada y enviada a análisis", 
+            "page_id": page_id
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

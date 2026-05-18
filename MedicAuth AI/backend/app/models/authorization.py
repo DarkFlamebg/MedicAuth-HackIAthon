@@ -107,3 +107,15 @@ class WebhookNotionPayload(BaseModel):
     properties: Dict[str, Any]
     created_time: Optional[str] = None
     last_edited_time: Optional[str] = None
+
+class SolicitudCreate(BaseModel):
+    """Modelo para crear una nueva solicitud desde el frontend"""
+    paciente_nombre: str
+    cedula: str
+    edad: int
+    numero_poliza: str
+    tipo_cirugia: str
+    hospital: str
+    medico_tratante: str
+    fecha_solicitada: str
+    informe_medico_url: str
