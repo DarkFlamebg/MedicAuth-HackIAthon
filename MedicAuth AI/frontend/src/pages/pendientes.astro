@@ -1,0 +1,499 @@
+---
+import Header from "../components/Header.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout>
+  <Header />
+
+  <section class="flex items-start justify-between gap-4 mb-2">
+    <div class="space-y-1">
+      <div class="flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#D0D0D1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 12h6"/><path d="M12 9v6"/>
+          <path d="M3 9a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/>
+        </svg>
+        <h1 class="text-3xl text-slate-200 font-semibold">Solicitudes Pendientes</h1>
+      </div>
+      <p class="text-slate-400 text-sm">Procesa cada solicitud individualmente para no saturar el agente IA</p>
+    </div>
+    <div class="flex items-center gap-3 shrink-0 mt-1">
+      <div class="flex items-center gap-2 px-4 py-2 rounded-lg" style="background:#1e293b;border:1px solid #334155">
+        <span class="w-2 h-2 rounded-full" style="background:#facc15;animation:pulse 2s infinite"></span>
+        <span class="text-sm font-medium" style="color:#cbd5e1">
+          <span id="pending-count">—</span> pendientes
+        </span>
+      </div>
+      <button id="refresh-btn" class="flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors cursor-pointer" style="background:#1e293b;border:1px solid #334155;color:#94a3b8">
+        <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+          <path d="M21 3v5h-5"/>
+          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+          <path d="M8 16H3v5"/>
+        </svg>
+        Actualizar
+      </button>
+    </div>
+  </section>
+
+  <div id="loading-state" class="flex flex-col items-center justify-center py-32 gap-4">
+    <div style="width:32px;height:32px;border:2px solid #10b981;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    <p style="color:#64748b;font-size:0.875rem">Cargando solicitudes...</p>
+  </div>
+
+  <div id="empty-state" class="hidden flex flex-col items-center justify-center py-32 gap-3">
+    <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1e3a2e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 11l3 3L22 4"/>
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    <p style="color:#94a3b8;font-size:1.125rem;font-weight:500">Sin solicitudes pendientes</p>
+    <p style="color:#FFF;font-size:0.875rem">Todas las solicitudes han sido procesadas</p>
+  </div>
+
+  <div id="error-state" class="hidden flex flex-col items-center justify-center py-32 gap-3">
+    <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="8" x2="12" y2="12"/>
+      <line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <p style="color:#cbd5e1;font-size:1.125rem;font-weight:500">Error al cargar</p>
+    <p id="error-msg" style="color:#64748b;font-size:0.875rem;text-align:center;max-width:280px"></p>
+    <button id="retry-btn" style="color:#34d399;font-size:0.875rem;text-decoration:underline;cursor:pointer;background:none;border:none;margin-top:4px">Reintentar</button>
+  </div>
+
+  <div id="solicitudes-list" class="hidden space-y-4"></div>
+</Layout>
+
+<div id="toast" class="hidden" style="position:fixed;bottom:24px;right:24px;z-index:50">
+  <div id="toast-inner" style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-radius:12px;font-size:0.875rem;font-weight:500;box-shadow:0 25px 50px rgba(0,0,0,0.5)">
+    <span id="toast-icon"></span>
+    <span id="toast-msg"></span>
+  </div>
+</div>
+
+<style is:global>
+  @keyframes spin    { to { transform: rotate(360deg); } }
+  @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes cardIn  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeOut { to{opacity:0;transform:translateX(20px)} }
+
+  .med-card {
+    animation: cardIn 0.25s ease forwards;
+    opacity: 0;
+    background: #0f1e2e;
+    border: 1px solid #1e3a52;
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .med-card:hover { border-color: #2d5a7a; }
+
+  /* ── Cabecera ── */
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px 12px;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .patient-left { display: flex; align-items: center; gap: 12px; }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: #1a3550; border: 1px solid #2d5a7a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: #7dd3fc;
+    flex-shrink: 0;
+  }
+  .patient-name { font-size: 1rem; font-weight: 600; color: #e2e8f0; margin: 0 0 4px; }
+  .patient-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ci-badge {
+    font-family: monospace; font-size: 0.72rem;
+    background: #1e293b; border: 1px solid #2d3f52;
+    color: #94a3b8; padding: 2px 7px; border-radius: 5px;
+  }
+  .age-tag { font-size: 0.72rem; color: #64748b; }
+  .cirugia-tag {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 5px;
+    background: #0c2a3f; border: 1px solid #1e4d6b; color: #7dd3fc;
+  }
+  .req-id { font-family: monospace; font-size: 0.68rem; color: #334155; }
+
+  /* ── Sección solicitud ── */
+  .section-solicitud {
+    padding: 14px 22px;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .section-label {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #475569; margin: 0 0 10px; font-weight: 600;
+  }
+  .data-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px 20px;
+  }
+  .data-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px 20px;
+  }
+  .field-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: #475569; margin: 0 0 2px;
+  }
+  .field-value {
+    font-size: 0.82rem; color: #cbd5e1; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .field-mono { font-family: monospace; font-size: 0.75rem; color: #94a3b8; }
+
+  /* ── Sección póliza ── */
+  .section-poliza {
+    padding: 14px 22px;
+    background: #0b1a27;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .poliza-sin-datos {
+    font-size: 0.78rem; color: #334155; font-style: italic;
+  }
+
+  /* ── Footer ── */
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 22px;
+    background: #0d1b2a;
+  }
+  .footer-docs { display: flex; align-items: center; gap: 20px; }
+  .doc-item { display: flex; align-items: center; gap: 6px; }
+  .doc-label { font-size: 0.68rem; color: #475569; text-transform: uppercase; letter-spacing: 0.07em; }
+  .pdf-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.72rem; color: #34d399;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .pdf-link:hover { color: #6ee7b7; }
+  .no-pdf { font-size: 0.72rem; color: #334155; font-style: italic; }
+  .vdivider { width: 1px; height: 16px; background: #1e3a52; }
+
+  /* Botón procesar */
+  .btn-process {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #059669; color: white;
+    font-size: 0.82rem; font-weight: 600;
+    padding: 9px 18px; border-radius: 9px; border: none;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-process:hover:not(:disabled) { background: #10b981; }
+  .btn-process:active:not(:disabled) { transform: scale(0.97); }
+  .btn-process:disabled { background: #1e293b; cursor: not-allowed; color: #475569; }
+  .btn-process.error { background: #991b1b; color: #fca5a5; cursor: pointer; }
+  .btn-process.error:hover { background: #b91c1c; }
+  .page-id-mono { font-family: monospace; font-size: 0.65rem; color: #1e3a52; margin-top: 4px; text-align: right; }
+
+  /* Barra de progreso */
+  .progress-section { border-top: 1px solid #1e3a52; background: #0a1520; padding: 12px 22px; }
+  .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .progress-spinner {
+    width: 13px; height: 13px;
+    border: 2px solid #10b981; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0;
+  }
+  .progress-msg { font-size: 0.8rem; color: #34d399; }
+  .progress-track { height: 3px; background: #1e293b; border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #10b981; border-radius: 99px; transition: width 0.7s ease; }
+  .progress-fill.done { background: #34d399; }
+
+  /* Badge estado póliza */
+  .poliza-estado {
+    font-size: 0.65rem; padding: 2px 7px; border-radius: 4px; font-weight: 600;
+  }
+  .poliza-activa { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .poliza-inactiva { background: #450a0a; color: #f87171; border: 1px solid #7f1d1d; }
+</style>
+
+<script>
+  const API = "https://medicauth-hackiathon.onrender.com";
+
+  function showToast(msg: string, type: "success" | "error" | "info" = "info") {
+    const toast = document.getElementById("toast")!;
+    const inner = document.getElementById("toast-inner")!;
+    const styles: Record<string, string> = {
+      success: "background:#0d2218;border:1px solid #16603e;color:#34d399",
+      error:   "background:#200a0a;border:1px solid #7f1d1d;color:#fca5a5",
+      info:    "background:#131e2b;border:1px solid #1e3a52;color:#94a3b8",
+    };
+    const icons: Record<string, string> = { success: "✓", error: "✕", info: "·" };
+    inner.setAttribute("style", styles[type]);
+    document.getElementById("toast-icon")!.textContent = icons[type];
+    document.getElementById("toast-msg")!.textContent = msg;
+    toast.classList.remove("hidden");
+    setTimeout(() => toast.classList.add("hidden"), 3500);
+  }
+
+  function showOnly(id: string) {
+    ["loading-state", "empty-state", "error-state", "solicitudes-list"]
+      .forEach(s => document.getElementById(s)!.classList.add("hidden"));
+    document.getElementById(id)!.classList.remove("hidden");
+  }
+
+  function initials(name: string): string {
+    return name.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase();
+  }
+
+  function pdfBadge(url: string | null | undefined, label: string): string {
+    if (!url) return `<span class="no-pdf">Sin ${label}</span>`;
+    return `<a href="${url}" target="_blank" class="pdf-link">
+      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>${label}
+    </a>`;
+  }
+
+  function buildCard(s: any): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.id = `card-${s.id_solicitud}`;
+    wrap.className = "med-card";
+
+    const fecha = s.fecha_solicitada
+      ? new Date(s.fecha_solicitada).toLocaleDateString("es-EC", { day: "numeric", month: "short", year: "numeric" })
+      : "—";
+
+    const p = s.poliza;
+
+    const fechaInicio = p?.fecha_inicio
+      ? new Date(p.fecha_inicio).toLocaleDateString("es-EC", { day: "numeric", month: "short", year: "numeric" })
+      : "—";
+    const fechaFin = p?.fecha_fin
+      ? new Date(p.fecha_fin).toLocaleDateString("es-EC", { day: "numeric", month: "short", year: "numeric" })
+      : "—";
+
+    const estadoBadge = p
+      ? `<span class="poliza-estado ${p.estado?.toLowerCase() === "activa" ? "poliza-activa" : "poliza-inactiva"}">${p.estado || "—"}</span>`
+      : "";
+
+    const polizaSection = p
+      ? `<div class="data-grid" style="grid-template-columns: repeat(4,1fr)">
+          <div>
+            <p class="field-label">Aseguradora</p>
+            <p class="field-value">${p.aseguradora || "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Titular</p>
+            <p class="field-value">${p.titular || "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Plan</p>
+            <p class="field-value">${p.tipo_plan || "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Carencia</p>
+            <p class="field-value">${p.carencia_dias != null ? p.carencia_dias + " días" : "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Vigencia inicio</p>
+            <p class="field-value">${fechaInicio}</p>
+          </div>
+          <div>
+            <p class="field-label">Vigencia fin</p>
+            <p class="field-value">${fechaFin}</p>
+          </div>
+          <div>
+            <p class="field-label">Estado</p>
+            <p class="field-value">${estadoBadge}</p>
+          </div>
+          <div>
+            <p class="field-label">Exclusiones</p>
+            <p class="field-value" title="${p.exclusiones?.join(", ") || "—"}">${p.exclusiones?.length ? p.exclusiones[0].slice(0, 30) + (p.exclusiones[0].length > 30 ? "…" : "") : "—"}</p>
+          </div>
+        </div>`
+      : `<p class="poliza-sin-datos">No se encontró póliza asociada</p>`;
+
+    wrap.innerHTML = `
+      <!-- Cabecera -->
+      <div class="card-header">
+        <div class="patient-left">
+          <div class="avatar">${initials(s.paciente_nombre || "?")}</div>
+          <div>
+            <p class="patient-name">${s.paciente_nombre || "—"}</p>
+            <div class="patient-meta">
+              <span class="ci-badge">CI ${s.cedula || "—"}</span>
+              ${s.edad ? `<span class="age-tag">${s.edad} años</span>` : ""}
+              ${s.tipo_cirugia ? `<span class="cirugia-tag">${s.tipo_cirugia}</span>` : ""}
+            </div>
+          </div>
+        </div>
+        <span class="req-id">${s.id_solicitud?.slice(0, 8)}…</span>
+      </div>
+
+      <!-- Datos solicitud -->
+      <div class="section-solicitud">
+        <p class="section-label">📋 Solicitud</p>
+        <div class="data-grid">
+          <div>
+            <p class="field-label">Hospital</p>
+            <p class="field-value">${s.hospital || "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Médico tratante</p>
+            <p class="field-value">${s.medico_tratante || "—"}</p>
+          </div>
+          <div>
+            <p class="field-label">Fecha solicitada</p>
+            <p class="field-value">${fecha}</p>
+          </div>
+          <div>
+            <p class="field-label">N° Póliza</p>
+            <p class="field-value field-mono">${s.numero_poliza || "—"}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Datos póliza -->
+      <div class="section-poliza">
+        <p class="section-label">🛡 Póliza de seguro</p>
+        ${polizaSection}
+      </div>
+
+      <!-- Footer: documentos + botón -->
+      <div class="card-footer">
+        <div class="footer-docs">
+          <div class="doc-item">
+            <span class="doc-label">Informe médico</span>
+            ${pdfBadge(s.informe_medico_url, "Ver PDF")}
+          </div>
+          ${p?.documento_poliza_url ? `
+            <div class="vdivider"></div>
+            <div class="doc-item">
+              <span class="doc-label">Documento póliza</span>
+              ${pdfBadge(p.documento_poliza_url, "Ver PDF")}
+            </div>` : ""}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <button data-page-id="${s.id_solicitud}" class="btn-process">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Procesar con IA
+          </button>
+          <p class="page-id-mono">${s.id_solicitud?.slice(0, 8)}…</p>
+        </div>
+      </div>
+
+      <!-- Progreso -->
+      <div id="progress-${s.id_solicitud}" class="progress-section" style="display:none">
+        <div class="progress-row">
+          <div class="progress-spinner"></div>
+          <p id="progress-msg-${s.id_solicitud}" class="progress-msg">Enviando al agente IA…</p>
+        </div>
+        <div class="progress-track">
+          <div id="progress-bar-${s.id_solicitud}" class="progress-fill" style="width:8%"></div>
+        </div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  async function loadSolicitudes() {
+    showOnly("loading-state");
+    try {
+      const res = await fetch(`${API}/api/authorization/pending`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const list: any[] = data.solicitudes || [];
+
+      document.getElementById("pending-count")!.textContent = String(list.length);
+
+      if (list.length === 0) { showOnly("empty-state"); return; }
+
+      const container = document.getElementById("solicitudes-list")!;
+      container.innerHTML = "";
+      list.forEach((s, i) => {
+        const card = buildCard(s);
+        card.style.animationDelay = `${i * 50}ms`;
+        container.appendChild(card);
+      });
+      showOnly("solicitudes-list");
+      attachListeners();
+    } catch (err: any) {
+      document.getElementById("error-msg")!.textContent = err.message;
+      showOnly("error-state");
+    }
+  }
+
+  function attachListeners() {
+    document.querySelectorAll<HTMLButtonElement>(".btn-process").forEach(btn => {
+      btn.addEventListener("click", () => processOne(btn.dataset.pageId!));
+    });
+  }
+
+  async function processOne(pageId: string) {
+    const card     = document.getElementById(`card-${pageId}`)!;
+    const btn      = card.querySelector<HTMLButtonElement>(".btn-process")!;
+    const progress = document.getElementById(`progress-${pageId}`)!;
+    const msgEl    = document.getElementById(`progress-msg-${pageId}`)!;
+    const barEl    = document.getElementById(`progress-bar-${pageId}`)!;
+
+    btn.disabled = true;
+    btn.innerHTML = `<div style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite"></div>Procesando…`;
+    progress.style.display = "block";
+
+    const steps = [
+      { pct: 20, msg: "Obteniendo datos de Notion…" },
+      { pct: 42, msg: "Validando póliza de seguro…" },
+      { pct: 65, msg: "Analizando informe con Gemini…" },
+      { pct: 85, msg: "Generando decisión final…" },
+    ];
+    let step = 0;
+    const ticker = setInterval(() => {
+      if (step < steps.length) {
+        barEl.style.width = steps[step].pct + "%";
+        msgEl.textContent = steps[step].msg;
+        step++;
+      }
+    }, 2800);
+
+    try {
+      const res = await fetch(`${API}/api/authorization/${pageId}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      clearInterval(ticker);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `HTTP ${res.status}`); }
+
+      barEl.style.width = "100%";
+      barEl.classList.add("done");
+      msgEl.textContent = "✓ Enviado — el agente procesará en segundo plano";
+      msgEl.style.color = "#86efac";
+      showToast("Solicitud enviada al agente IA", "success");
+
+      setTimeout(() => {
+        card.style.animation = "fadeOut 0.35s ease forwards";
+        setTimeout(() => {
+          card.remove();
+          const rem = document.querySelectorAll(".btn-process").length;
+          document.getElementById("pending-count")!.textContent = String(rem);
+          if (rem === 0) showOnly("empty-state");
+        }, 350);
+      }, 2200);
+
+    } catch (err: any) {
+      clearInterval(ticker);
+      progress.style.display = "none";
+      btn.disabled = false;
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Reintentar`;
+      btn.classList.add("error");
+      showToast(`Error: ${err.message}`, "error");
+    }
+  }
+
+  document.getElementById("refresh-btn")!.addEventListener("click", () => {
+    const icon = document.getElementById("refresh-icon")!;
+    icon.style.animation = "spin 0.6s linear infinite";
+    loadSolicitudes().finally(() => setTimeout(() => icon.style.animation = "", 600));
+  });
+  document.getElementById("retry-btn")!.addEventListener("click", loadSolicitudes);
+
+  loadSolicitudes();
+</script>

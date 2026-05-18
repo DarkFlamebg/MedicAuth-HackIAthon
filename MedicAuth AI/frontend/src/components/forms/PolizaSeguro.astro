@@ -1,8 +1,7 @@
 ---
 import Input from '../ui/Input.astro';
 import Select from '../ui/Select.astro';
-
-import {ShieldCheck } from '@lucide/astro';
+import { ShieldCheck } from '@lucide/astro';
 ---
 
 <section class="bg-slate-700 rounded-xl p-6">
@@ -24,7 +23,7 @@ import {ShieldCheck } from '@lucide/astro';
 		/>
 
 		<Input
-			label="Titular de Poliza"
+			label="Titular de Póliza"
 			name="titular"
 			placeholder='Carlos Espinoza'
 			required
@@ -63,7 +62,21 @@ import {ShieldCheck } from '@lucide/astro';
 		<Input
 			label="Exclusiones"
 			name="exclusiones"
-			placeholder='Esta poliza no cubre ...'
+			placeholder='Esta póliza no cubre ...'
+			required
+		/>
+
+		<Input
+			label="Fecha de inicio"
+			type="date"
+			name="fecha_inicio"
+			required
+		/>
+
+		<Input
+			label="Fecha de fin"
+			type="date"
+			name="fecha_fin"
 			required
 		/>
 

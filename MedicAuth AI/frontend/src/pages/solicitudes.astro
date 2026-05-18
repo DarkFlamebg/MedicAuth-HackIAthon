@@ -1,0 +1,460 @@
+---
+import Header from "../components/Header.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout>
+  <Header />
+
+  <section class="flex items-start justify-between gap-4 mb-2">
+    <div class="space-y-1">
+      <div class="flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#D0D0D1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"/>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        <h1 class="text-3xl text-slate-200 font-semibold">Solicitudes Resueltas</h1>
+      </div>
+      <p class="text-slate-400 text-sm">Historial de solicitudes procesadas por el agente IA</p>
+    </div>
+    <div class="flex items-center gap-3 shrink-0 mt-1">
+      <div id="filter-bar" class="flex items-center gap-2">
+        <button data-filter="all"    class="filter-btn active">Todas</button>
+        <button data-filter="Aprobado"          class="filter-btn">Aprobadas</button>
+        <button data-filter="Rechazado"         class="filter-btn">Rechazadas</button>
+        <button data-filter="Documentos Faltantes" class="filter-btn">Docs faltantes</button>
+      </div>
+      <button id="refresh-btn" class="flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors cursor-pointer" style="background:#1e293b;border:1px solid #334155;color:#94a3b8">
+        <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+          <path d="M21 3v5h-5"/>
+          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+          <path d="M8 16H3v5"/>
+        </svg>
+        Actualizar
+      </button>
+    </div>
+  </section>
+
+  <!-- Stats -->
+  <div id="stats-bar" class="hidden flex gap-3 mb-6 mt-4">
+    <div class="stat-chip stat-total">  <span id="st-total">—</span> total</div>
+    <div class="stat-chip stat-aprobado"><span id="st-aprobado">—</span> aprobadas</div>
+    <div class="stat-chip stat-rechazado"><span id="st-rechazado">—</span> rechazadas</div>
+    <div class="stat-chip stat-docs"><span id="st-docs">—</span> docs faltantes</div>
+  </div>
+
+  <div id="loading-state" class="flex flex-col items-center justify-center py-32 gap-4">
+    <div style="width:32px;height:32px;border:2px solid #10b981;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    <p style="color:#64748b;font-size:0.875rem">Cargando solicitudes resueltas...</p>
+  </div>
+
+  <div id="empty-state" class="hidden flex flex-col items-center justify-center py-32 gap-3">
+    <p style="color:#94a3b8;font-size:1.125rem;font-weight:500">Sin solicitudes resueltas</p>
+  </div>
+
+  <div id="error-state" class="hidden flex flex-col items-center justify-center py-32 gap-3">
+    <p style="color:#cbd5e1;font-size:1.125rem;font-weight:500">Error al cargar</p>
+    <p id="error-msg" style="color:#64748b;font-size:0.875rem;text-align:center;max-width:280px"></p>
+    <button id="retry-btn" style="color:#34d399;font-size:0.875rem;text-decoration:underline;cursor:pointer;background:none;border:none;margin-top:4px">Reintentar</button>
+  </div>
+
+  <div id="solicitudes-list" class="hidden space-y-4"></div>
+</Layout>
+
+<style is:global>
+  @keyframes spin   { to { transform: rotate(360deg); } }
+  @keyframes cardIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  /* Filtros */
+  .filter-btn {
+    font-size: 0.75rem; font-weight: 500;
+    padding: 5px 12px; border-radius: 7px; cursor: pointer;
+    background: #1e293b; border: 1px solid #334155; color: #64748b;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: #475569; color: #94a3b8; }
+  .filter-btn.active { background: #0f2a3f; border-color: #1e4d6b; color: #7dd3fc; }
+
+  /* Stats */
+  .stat-chip {
+    font-size: 0.75rem; font-weight: 500;
+    padding: 4px 12px; border-radius: 6px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .stat-total    { background:#1e293b; border:1px solid #334155; color:#94a3b8; }
+  .stat-aprobado { background:#052e16; border:1px solid #166534; color:#4ade80; }
+  .stat-rechazado{ background:#450a0a; border:1px solid #7f1d1d; color:#f87171; }
+  .stat-docs     { background:#1c1a05; border:1px solid #713f12; color:#fbbf24; }
+
+  /* Cards */
+  .res-card {
+    animation: cardIn 0.25s ease forwards;
+    opacity: 0;
+    background: #0f1e2e;
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .res-card:hover { border-color: #2d5a7a !important; }
+  .res-card.aprobado  { border: 1px solid #166534; }
+  .res-card.rechazado { border: 1px solid #7f1d1d; }
+  .res-card.docs      { border: 1px solid #92400e; }
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px 12px;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .patient-left { display: flex; align-items: center; gap: 12px; }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; flex-shrink: 0;
+  }
+  .avatar.aprobado  { background:#052e16; border:1px solid #166534; color:#4ade80; }
+  .avatar.rechazado { background:#450a0a; border:1px solid #7f1d1d; color:#f87171; }
+  .avatar.docs      { background:#1c1a05; border:1px solid #92400e; color:#fbbf24; }
+
+  .patient-name { font-size: 1rem; font-weight: 600; color: #e2e8f0; margin: 0 0 4px; }
+  .patient-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ci-badge {
+    font-family: monospace; font-size: 0.72rem;
+    background: #1e293b; border: 1px solid #2d3f52;
+    color: #94a3b8; padding: 2px 7px; border-radius: 5px;
+  }
+  .age-tag { font-size: 0.72rem; color: #64748b; }
+  .cirugia-tag {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 5px;
+    background: #0c2a3f; border: 1px solid #1e4d6b; color: #7dd3fc;
+  }
+
+  .estado-badge {
+    font-size: 0.72rem; font-weight: 600; padding: 4px 12px; border-radius: 6px;
+  }
+  .estado-badge.aprobado  { background:#052e16; border:1px solid #166534; color:#4ade80; }
+  .estado-badge.rechazado { background:#450a0a; border:1px solid #7f1d1d; color:#f87171; }
+  .estado-badge.docs      { background:#1c1a05; border:1px solid #92400e; color:#fbbf24; }
+
+  /* Secciones internas */
+  .section-solicitud {
+    padding: 14px 22px;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .section-poliza {
+    padding: 14px 22px;
+    background: #0b1a27;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .section-decision {
+    padding: 14px 22px;
+    background: #080f18;
+    border-bottom: 1px solid #1a2f42;
+  }
+  .section-label {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #475569; margin: 0 0 10px; font-weight: 600;
+  }
+  .data-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px 20px;
+  }
+  .field-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: #475569; margin: 0 0 2px;
+  }
+  .field-value {
+    font-size: 0.82rem; color: #cbd5e1; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .field-mono { font-family: monospace; font-size: 0.75rem; color: #94a3b8; }
+
+  /* Score bar */
+  .score-bar-track {
+    height: 4px; background: #1e293b; border-radius: 99px;
+    overflow: hidden; margin-top: 6px;
+  }
+  .score-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
+
+  /* Razonamiento */
+  .razonamiento-text {
+    font-size: 0.78rem; color: #94a3b8; line-height: 1.5;
+    background: #0d1b2a; border: 1px solid #1e3a52;
+    border-radius: 8px; padding: 10px 14px; margin: 0;
+    max-height: 80px; overflow-y: auto;
+  }
+
+  /* Docs faltantes */
+  .doc-faltante-tag {
+    display: inline-block; font-size: 0.68rem;
+    background: #1c1a05; border: 1px solid #92400e; color: #fbbf24;
+    padding: 2px 8px; border-radius: 4px; margin: 2px 3px 2px 0;
+  }
+
+  /* Footer */
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 22px; background: #0d1b2a;
+  }
+  .footer-docs { display: flex; align-items: center; gap: 16px; }
+  .doc-item { display: flex; align-items: center; gap: 6px; }
+  .doc-label { font-size: 0.68rem; color: #475569; text-transform: uppercase; letter-spacing: 0.07em; }
+  .pdf-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.72rem; color: #34d399;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .pdf-link:hover { color: #6ee7b7; }
+  .no-pdf { font-size: 0.72rem; color: #334155; font-style: italic; }
+  .vdivider { width: 1px; height: 16px; background: #1e3a52; }
+  .footer-meta { font-size: 0.68rem; color: #334155; font-family: monospace; text-align: right; }
+
+  .poliza-activa   { font-size:0.65rem;padding:2px 7px;border-radius:4px;font-weight:600;background:#052e16;color:#4ade80;border:1px solid #166534; }
+  .poliza-inactiva { font-size:0.65rem;padding:2px 7px;border-radius:4px;font-weight:600;background:#450a0a;color:#f87171;border:1px solid #7f1d1d; }
+  .poliza-sin-datos { font-size:0.78rem;color:#334155;font-style:italic; }
+</style>
+
+<script>
+  const API = "https://medicauth-hackiathon.onrender.com";
+  let allSolicitudes: any[] = [];
+  let currentFilter = "all";
+
+  function showOnly(id: string) {
+    ["loading-state","empty-state","error-state","solicitudes-list"]
+      .forEach(s => document.getElementById(s)!.classList.add("hidden"));
+    document.getElementById(id)!.classList.remove("hidden");
+  }
+
+  function initials(name: string): string {
+    return (name || "?").split(" ").slice(0,2).map((n: string) => n[0]).join("").toUpperCase();
+  }
+
+  function cssClass(estado: string): string {
+    if (estado === "Aprobado") return "aprobado";
+    if (estado === "Rechazado") return "rechazado";
+    return "docs";
+  }
+
+  function pdfBadge(url: string | null | undefined, label: string): string {
+    if (!url) return `<span class="no-pdf">Sin ${label}</span>`;
+    return `<a href="${url}" target="_blank" class="pdf-link">
+      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>${label}
+    </a>`;
+  }
+
+  function buildCard(s: any): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = `res-card ${cssClass(s.estado)}`;
+
+    const p = s.poliza;
+    const cls = cssClass(s.estado);
+
+    const fecha = s.fecha_solicitada
+      ? new Date(s.fecha_solicitada).toLocaleDateString("es-EC", {day:"numeric",month:"short",year:"numeric"})
+      : "—";
+
+    const fechaResp = s.fecha_respuesta
+      ? new Date(s.fecha_respuesta).toLocaleDateString("es-EC", {day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})
+      : "—";
+
+    const fechaInicio = p?.fecha_inicio
+      ? new Date(p.fecha_inicio).toLocaleDateString("es-EC",{day:"numeric",month:"short",year:"numeric"})
+      : "—";
+    const fechaFin = p?.fecha_fin
+      ? new Date(p.fecha_fin).toLocaleDateString("es-EC",{day:"numeric",month:"short",year:"numeric"})
+      : "—";
+
+    // Score color
+    const score = s.score_confianza ?? 0;
+    const scoreColor = score >= 80 ? "#4ade80" : score >= 50 ? "#fbbf24" : "#f87171";
+
+    // Decisión IA — parsear si viene como string JSON
+    let decision: any = s.decision_ia;
+    if (typeof decision === "string") {
+      try { decision = JSON.parse(decision); } catch { decision = null; }
+    }
+
+    // Documentos faltantes
+    const docsFaltantes: string[] = s.documentos_faltantes || [];
+    const docsHtml = docsFaltantes.length
+      ? docsFaltantes.map((d: string) => `<span class="doc-faltante-tag">${d}</span>`).join("")
+      : `<span style="font-size:0.75rem;color:#334155;font-style:italic">Ninguno</span>`;
+
+    // Cláusulas relevantes
+    const clausulas: string[] = decision?.clausulas_relevantes || [];
+    const clausulasHtml = clausulas.length
+      ? clausulas.slice(0,3).map((c: string) => `<span class="doc-faltante-tag" style="background:#0c1e33;border-color:#1e4d6b;color:#7dd3fc">${c.slice(0,60)}${c.length>60?"…":""}</span>`).join("")
+      : `<span style="font-size:0.75rem;color:#334155;font-style:italic">—</span>`;
+
+    const polizaSection = p
+      ? `<div class="data-grid" style="grid-template-columns:repeat(4,1fr)">
+          <div><p class="field-label">Aseguradora</p><p class="field-value">${p.aseguradora||"—"}</p></div>
+          <div><p class="field-label">Titular</p><p class="field-value">${p.titular||"—"}</p></div>
+          <div><p class="field-label">Plan</p><p class="field-value">${p.tipo_plan||"—"}</p></div>
+          <div><p class="field-label">Carencia</p><p class="field-value">${p.carencia_dias!=null?p.carencia_dias+" días":"—"}</p></div>
+          <div><p class="field-label">Vigencia inicio</p><p class="field-value">${fechaInicio}</p></div>
+          <div><p class="field-label">Vigencia fin</p><p class="field-value">${fechaFin}</p></div>
+          <div><p class="field-label">Estado póliza</p><p class="field-value"><span class="${p.estado?.toLowerCase()==="activa"?"poliza-activa":"poliza-inactiva"}">${p.estado||"—"}</span></p></div>
+          <div><p class="field-label">Exclusiones</p><p class="field-value" title="${p.exclusiones?.join(", ")||"—"}">${p.exclusiones?.length?p.exclusiones[0].slice(0,28)+(p.exclusiones[0].length>28?"…":""):"—"}</p></div>
+        </div>`
+      : `<p class="poliza-sin-datos">No se encontró póliza asociada</p>`;
+
+    wrap.innerHTML = `
+      <!-- Cabecera -->
+      <div class="card-header">
+        <div class="patient-left">
+          <div class="avatar ${cls}">${initials(s.paciente_nombre)}</div>
+          <div>
+            <p class="patient-name">${s.paciente_nombre||"—"}</p>
+            <div class="patient-meta">
+              <span class="ci-badge">CI ${s.cedula||"—"}</span>
+              ${s.edad?`<span class="age-tag">${s.edad} años</span>`:""}
+              ${s.tipo_cirugia?`<span class="cirugia-tag">${s.tipo_cirugia}</span>`:""}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="estado-badge ${cls}">${s.estado||"—"}</span>
+        </div>
+      </div>
+
+      <!-- Datos solicitud -->
+      <div class="section-solicitud">
+        <p class="section-label">📋 Solicitud</p>
+        <div class="data-grid">
+          <div><p class="field-label">Hospital</p><p class="field-value">${s.hospital||"—"}</p></div>
+          <div><p class="field-label">Médico tratante</p><p class="field-value">${s.medico_tratante||"—"}</p></div>
+          <div><p class="field-label">Fecha solicitada</p><p class="field-value">${fecha}</p></div>
+          <div><p class="field-label">N° Póliza</p><p class="field-value field-mono">${s.numero_poliza||"—"}</p></div>
+        </div>
+      </div>
+
+      <!-- Datos póliza -->
+      <div class="section-poliza">
+        <p class="section-label">🛡 Póliza de seguro</p>
+        ${polizaSection}
+      </div>
+
+      <!-- Decisión IA -->
+      <div class="section-decision">
+        <p class="section-label">🤖 Decisión IA</p>
+        <div class="data-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+          <div>
+            <p class="field-label">Score confianza</p>
+            <p class="field-value" style="color:${scoreColor};font-weight:600">${score}%</p>
+            <div class="score-bar-track">
+              <div class="score-bar-fill" style="width:${score}%;background:${scoreColor}"></div>
+            </div>
+          </div>
+          <div>
+            <p class="field-label">Fecha respuesta</p>
+            <p class="field-value">${fechaResp}</p>
+          </div>
+          <div>
+            <p class="field-label">Tiempo procesamiento</p>
+            <p class="field-value">${s.tiempo_procesamiento!=null?s.tiempo_procesamiento.toFixed(2)+"s":"—"}</p>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <p class="field-label" style="margin-bottom:6px">Razonamiento</p>
+          <p class="razonamiento-text">${s.razonamiento||"Sin razonamiento disponible"}</p>
+        </div>
+        <div style="margin-bottom:6px">
+          <p class="field-label" style="margin-bottom:5px">Cláusulas relevantes</p>
+          <div>${clausulasHtml}</div>
+        </div>
+        ${docsFaltantes.length?`
+        <div style="margin-top:8px">
+          <p class="field-label" style="margin-bottom:5px">Documentos faltantes</p>
+          <div>${docsHtml}</div>
+        </div>`:""}
+      </div>
+
+      <!-- Footer -->
+      <div class="card-footer">
+        <div class="footer-docs">
+          <div class="doc-item">
+            <span class="doc-label">Informe médico</span>
+            ${pdfBadge(s.informe_medico_url,"Ver PDF")}
+          </div>
+          ${p?.documento_poliza_url?`
+            <div class="vdivider"></div>
+            <div class="doc-item">
+              <span class="doc-label">Documento póliza</span>
+              ${pdfBadge(p.documento_poliza_url,"Ver PDF")}
+            </div>`:""}
+        </div>
+        <div class="footer-meta">
+          ${s.id_solicitud?.slice(0,8)}… · ${fechaResp}
+        </div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  function renderList(list: any[]) {
+    const filtered = currentFilter === "all"
+      ? list
+      : list.filter(s => s.estado === currentFilter);
+
+    const container = document.getElementById("solicitudes-list")!;
+    container.innerHTML = "";
+
+    if (filtered.length === 0) { showOnly("empty-state"); return; }
+
+    filtered.forEach((s, i) => {
+      const card = buildCard(s);
+      (card as HTMLElement).style.animationDelay = `${i * 40}ms`;
+      container.appendChild(card);
+    });
+    showOnly("solicitudes-list");
+  }
+
+  async function loadSolicitudes() {
+    showOnly("loading-state");
+    try {
+      const res = await fetch(`${API}/api/authorization/resolved`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      allSolicitudes = data.solicitudes || [];
+
+      // Stats
+      const aprobadas  = allSolicitudes.filter(s => s.estado === "Aprobado").length;
+      const rechazadas = allSolicitudes.filter(s => s.estado === "Rechazado").length;
+      const docs       = allSolicitudes.filter(s => s.estado === "Documentos Faltantes").length;
+      document.getElementById("st-total")!.textContent    = String(allSolicitudes.length);
+      document.getElementById("st-aprobado")!.textContent = String(aprobadas);
+      document.getElementById("st-rechazado")!.textContent= String(rechazadas);
+      document.getElementById("st-docs")!.textContent     = String(docs);
+      document.getElementById("stats-bar")!.classList.remove("hidden");
+
+      renderList(allSolicitudes);
+    } catch (err: any) {
+      document.getElementById("error-msg")!.textContent = err.message;
+      showOnly("error-state");
+    }
+  }
+
+  // Filtros
+  document.querySelectorAll<HTMLButtonElement>(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentFilter = btn.dataset.filter!;
+      renderList(allSolicitudes);
+    });
+  });
+
+  document.getElementById("refresh-btn")!.addEventListener("click", () => {
+    const icon = document.getElementById("refresh-icon")!;
+    icon.style.animation = "spin 0.6s linear infinite";
+    loadSolicitudes().finally(() => setTimeout(() => icon.style.animation = "", 600));
+  });
+  document.getElementById("retry-btn")!.addEventListener("click", loadSolicitudes);
+
+  loadSolicitudes();
+</script>

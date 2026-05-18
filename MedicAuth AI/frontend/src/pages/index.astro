@@ -23,6 +23,7 @@ import { Stethoscope } from "@lucide/astro";
 			revisión clínica
 		</p>
 	</section>
+
 	<form id="medical-form" class="space-y-8">
 		<DatosClientes />
 		<CirugiaCentroMedico />
@@ -36,6 +37,7 @@ import { Stethoscope } from "@lucide/astro";
 			>
 			<button
 				type="submit"
+				id="submit-btn"
 				class="bg-blue-500 hover:bg-blue-700 transition-colors ease-in text-white px-8 py-2 rounded-lg cursor-pointer"
 				>Enviar Solicitud</button
 			>
@@ -50,109 +52,121 @@ import { Stethoscope } from "@lucide/astro";
 		throw new Error('No se encontró el formulario con id "medical-form"');
 	}
 
+	const API = "https://medicauth-hackiathon.onrender.com";
+
+	async function subirPDF(file: File): Promise<string> {
+		const pdfFormData = new FormData();
+		pdfFormData.append("file", file);
+		const res = await fetch(`${API}/api/authorization/upload-pdf`, {
+			method: "POST",
+			body: pdfFormData,
+		});
+		if (!res.ok) {
+			const err = await res.json();
+			throw new Error(err.detail || "Error al subir PDF");
+		}
+		const result = await res.json();
+		console.log(`[PDF] Subido: ${result.url}`);
+		return result.url;
+	}
+
 	form.addEventListener("submit", async (e) => {
 		e.preventDefault();
+
+		const submitBtn = document.getElementById("submit-btn") as HTMLButtonElement;
+		const originalText = submitBtn.textContent || "Enviar Solicitud";
 
 		try {
 			const formData = new FormData(form);
 
-			// PDF
-			const informe = formData.get("informe_medico_url");
-
-			if (!(informe instanceof File)) {
-				alert("Debes subir un PDF");
+			// ── Validar informe médico (obligatorio) ─────────────────────
+			const informeFile = formData.get("informe_medico_url");
+			if (!(informeFile instanceof File) || informeFile.size === 0) {
+				alert("Debes subir el informe médico en PDF");
+				return;
+			}
+			if (!informeFile.name.toLowerCase().endsWith(".pdf")) {
+				alert("El informe médico debe ser un archivo PDF");
 				return;
 			}
 
-			// PAYLOAD FINAL
+			// ── Póliza PDF (opcional) ─────────────────────────────────────
+			const polizaFile = formData.get("documento_poliza");
+			const tienePolizaPDF =
+				polizaFile instanceof File &&
+				polizaFile.size > 0 &&
+				polizaFile.name.toLowerCase().endsWith(".pdf");
+
+			// ── PASO 1: Subir informe médico ──────────────────────────────
+			submitBtn.textContent = "Subiendo informe médico...";
+			submitBtn.disabled = true;
+			const informeUrl = await subirPDF(informeFile);
+
+			// ── PASO 2: Subir documento de póliza (si existe) ─────────────
+			let polizaUrl: string | null = null;
+			if (tienePolizaPDF) {
+				submitBtn.textContent = "Subiendo documento de póliza...";
+				polizaUrl = await subirPDF(polizaFile as File);
+			}
+
+			// ── PASO 3: Crear solicitud en Notion ─────────────────────────
+			submitBtn.textContent = "Creando solicitud en Notion...";
+
 			const data = {
-				paciente_nombre: formData
-					.get("paciente_nombre")
-					?.toString()
-					.trim(),
-
-				cedula: formData.get("cedula")?.toString().trim(),
-
-				edad: Number(formData.get("edad")),
-
-				numero_poliza: formData.get("numero_poliza")?.toString().trim(),
-
-				tipo_cirugia: formData.get("tipo_cirugia")?.toString().trim(),
-
-				hospital: formData.get("hospital")?.toString().trim(),
-
-				medico_tratante: formData
-					.get("medico_tratante")
-					?.toString()
-					.trim(),
-
-				fecha_solicitada: formData.get("fecha_solicitada"),
-
-				// URL HARDCODEADA TEMPORAL
-				informe_medico_url: "https://fake-storage.com/informe.pdf",
-
+				paciente_nombre: formData.get("paciente_nombre")?.toString().trim(),
+				cedula:          formData.get("cedula")?.toString().trim(),
+				edad:            Number(formData.get("edad")),
+				numero_poliza:   formData.get("numero_poliza")?.toString().trim(),
+				tipo_cirugia:    formData.get("tipo_cirugia")?.toString().trim(),
+				hospital:        formData.get("hospital")?.toString().trim(),
+				medico_tratante: formData.get("medico_tratante")?.toString().trim(),
+				fecha_solicitada:formData.get("fecha_solicitada")?.toString(),
+				informe_medico_url: informeUrl,
 				poliza_data: {
-					aseguradora: formData.get("aseguradora")?.toString().trim(),
-
-					titular: formData.get("titular")?.toString().trim(),
-
-					tipo_plan: formData.get("plan")?.toString().trim(),
-
-					coberturas: {},
-
-					exclusiones: [
-						formData.get("exclusiones")?.toString().trim(),
-					],
-
-					carencia_dias: 30,
-
-					fecha_inicio: "2025-01-01",
-
-					fecha_fin: "2026-01-01",
+					aseguradora:   formData.get("aseguradora")?.toString().trim(),
+					titular:       formData.get("titular")?.toString().trim(),
+					tipo_plan:     formData.get("plan")?.toString().trim(),
+					coberturas:    {},
+					exclusiones:   [formData.get("exclusiones")?.toString().trim() || ""],
+					carencia_dias: 90,
+					fecha_inicio:  formData.get("fecha_inicio")?.toString() || "2025-01-01",
+					fecha_fin:     formData.get("fecha_fin")?.toString() || "2026-01-01",
+					documento_poliza_url: polizaUrl ?? undefined,
 				},
 			};
 
-			// DEBUG JSON
-			console.log("JSON RESULTADO:");
-			console.log(data);
+			console.log("[DATA] Solicitud a enviar:", data);
 
-			console.log(JSON.stringify(data, null, 2));
+			const createRes = await fetch(`${API}/api/authorization/create`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(data),
+			});
 
-			// REQUEST API
-			const response = await fetch(
-				"https://medicauth-hackiathon.onrender.com/api/authorization/create",
-				{
-					method: "POST",
+			if (!createRes.ok) {
+				const err = await createRes.json();
+				throw new Error(err.detail || "Error al crear la solicitud");
+			}
 
-					headers: {
-						"Content-Type": "application/json",
-					},
+			const result = await createRes.json();
+			console.log("[OK] Solicitud creada:", result);
 
-					body: JSON.stringify(data),
-				},
-			);
+			let msg = `Solicitud enviada correctamente\n\nID: ${result.page_id}\nInforme: ${informeUrl}`;
+			if (polizaUrl) msg += `\nPóliza PDF: ${polizaUrl}`;
+			alert(msg);
 
-			// RESPONSE JSON
-			const result = await response.json();
-
-			console.log("API RESPONSE:");
-			console.log(result);
-
-			alert("Solicitud enviada correctamente");
-
-			// LIMPIAR FORMULARIO
 			form.reset();
-
-			// LIMPIAR NOMBRES DE ARCHIVOS
 			document.querySelectorAll('[id^="filename-"]').forEach((el) => {
 				el.textContent = "";
 				el.classList.add("hidden");
 			});
-		} catch (error) {
-			console.error("ERROR:");
-			console.error(error);
 
-			alert("Ocurrió un error al enviar la solicitud");
+		} catch (error) {
+			console.error("[ERROR]", error);
+			alert(`Error: ${error instanceof Error ? error.message : "Error desconocido"}`);
+		} finally {
+			submitBtn.textContent = originalText;
+			submitBtn.disabled = false;
 		}
 	});
 </script>
