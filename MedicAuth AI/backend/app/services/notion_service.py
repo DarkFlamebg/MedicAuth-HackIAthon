@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 
-from app.core.config import settings  # noqa: F401 (usado también para CLOUDINARY_CLOUD_NAME)
+from app.core.config import settings
 from app.models.authorization import SolicitudAutorizacion, Poliza, SolicitudCreate, PolizaCreate
 
 
@@ -30,7 +30,6 @@ class NotionService:
     """Cliente para interactuar con Notion"""
     
     def __init__(self):
-        # USAR ASYNCCLIENT PARA NO BLOQUEAR FASTAPI
         self.client = AsyncClient(auth=settings.NOTION_TOKEN)
         self.solicitudes_db_id = settings.NOTION_SOLICITUDES_DB_ID
         self.polizas_db_id = settings.NOTION_POLIZAS_DB_ID
@@ -50,6 +49,30 @@ class NotionService:
             return response.get("results", [])
         except Exception as e:
             print(f"[ERROR] Error obteniendo solicitudes pendientes: {e}")
+            return []
+    
+    async def get_resolved_authorizations(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las solicitudes procesadas (Aprobado, Rechazado, Documentos Faltantes)
+        ordenadas por fecha de respuesta descendente (más reciente primero)
+        """
+        try:
+            response = await self.client.databases.query(
+                database_id=self.solicitudes_db_id,
+                filter={
+                    "or": [
+                        {"property": "Estado", "select": {"equals": "Aprobado"}},
+                        {"property": "Estado", "select": {"equals": "Rechazado"}},
+                        {"property": "Estado", "select": {"equals": "Documentos Faltantes"}}
+                    ]
+                },
+                sorts=[
+                    {"property": "Fecha Respuesta", "direction": "descending"}
+                ]
+            )
+            return response.get("results", [])
+        except Exception as e:
+            print(f"[ERROR] Error obteniendo solicitudes resueltas: {e}")
             return []
             
     async def query_authorizations_by_status(self, status: str) -> List[Dict[str, Any]]:
@@ -215,11 +238,9 @@ class NotionService:
         
         poliza_id = ""
         
-        # 1. Si vienen datos de póliza, crearla primero
         if data.poliza_data:
             poliza_id = await self.create_policy_request(data.numero_poliza, data.poliza_data)
             
-        # 2. Si no venía póliza o falló, buscarla
         if not poliza_id:
             poliza = await self.get_policy_by_number(data.numero_poliza)
             poliza_id = poliza["id"] if poliza else ""
@@ -282,13 +303,18 @@ class NotionService:
             poliza_relation = props.get("Número Póliza", {}).get("relation", [])
             numero_poliza = poliza_relation[0].get("id", "") if poliza_relation else ""
 
+            # ✅ Normalizar fecha_solicitada siempre a string ISO
             fecha_sol = props.get("Fecha Solicitada", {}).get("date", {})
-            fecha_solicitada = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
+            fecha_solicitada_raw = fecha_sol.get("start", datetime.now().isoformat()) if fecha_sol else datetime.now().isoformat()
+            
+            if isinstance(fecha_solicitada_raw, str):
+                fecha_solicitada = fecha_solicitada_raw
+            else:
+                fecha_solicitada = fecha_solicitada_raw.isoformat() if hasattr(fecha_solicitada_raw, 'isoformat') else str(fecha_solicitada_raw)
 
             informe_url_field = props.get("Informe Médico", {}).get("url") or ""
             informe_url = informe_url_field if informe_url_field.startswith("http") else None
 
-            # Campos de decisión IA
             razonamiento = _get_rich_text(props.get("Razonamiento", {})) or None
 
             score_prop = props.get("Score Confianza", {}).get("number")
@@ -297,9 +323,14 @@ class NotionService:
             tiempo_prop = props.get("Tiempo Procesamiento", {}).get("number")
             tiempo_procesamiento = float(tiempo_prop) if tiempo_prop is not None else None
 
+            # ✅ Normalizar fecha_respuesta siempre a string ISO o None
             fecha_resp_obj = props.get("Fecha Respuesta", {}).get("date", {})
             fecha_resp_str = fecha_resp_obj.get("start") if fecha_resp_obj else None
-            fecha_respuesta = datetime.fromisoformat(fecha_resp_str.replace("Z", "+00:00")) if fecha_resp_str else None
+            
+            if fecha_resp_str:
+                fecha_respuesta = fecha_resp_str.replace("Z", "+00:00") if isinstance(fecha_resp_str, str) else fecha_resp_str.isoformat()
+            else:
+                fecha_respuesta = None
 
             decision_ia_text = _get_rich_text(props.get("Decisión IA", {}))
             try:
@@ -317,7 +348,7 @@ class NotionService:
                 edad=edad,
                 numero_poliza=numero_poliza,
                 tipo_cirugia=tipo_cirugia,
-                fecha_solicitada=datetime.fromisoformat(fecha_solicitada.replace("Z", "+00:00")),
+                fecha_solicitada=fecha_solicitada,
                 hospital=hospital_name,
                 medico_tratante=medico,
                 informe_medico_url=informe_url,
@@ -362,11 +393,14 @@ class NotionService:
             exclusiones_text = _get_rich_text(props.get("Exclusiones", {}))
             exclusiones = [e.strip() for e in exclusiones_text.split(",") if e.strip()]
             
+            # ✅ Fechas como strings ISO
             fecha_inicio_obj = props.get("Fecha Inicio", {}).get("date", {})
             fecha_inicio = fecha_inicio_obj.get("start", datetime.now().isoformat()) if fecha_inicio_obj else datetime.now().isoformat()
             
             fecha_fin_obj = props.get("Fecha Fin", {}).get("date", {})
             fecha_fin = fecha_fin_obj.get("start", datetime.now().isoformat()) if fecha_fin_obj else datetime.now().isoformat()
+            
+            doc_poliza_url = props.get("Documento Póliza", {}).get("url") or None
             
             return Poliza(
                 numero_poliza=numero_poliza,
@@ -376,9 +410,10 @@ class NotionService:
                 coberturas=coberturas,
                 exclusiones=exclusiones,
                 carencia_dias=carencia_dias,
-                fecha_inicio=datetime.fromisoformat(fecha_inicio.replace("Z", "+00:00")),
-                fecha_fin=datetime.fromisoformat(fecha_fin.replace("Z", "+00:00")),
-                estado=estado
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+                estado=estado,
+                documento_poliza_url=doc_poliza_url
             )
         except Exception as e:
             print(f"[ERROR] Error parseando póliza de Notion: {e}")

@@ -282,35 +282,75 @@ async def create_authorization(solicitud: SolicitudCreate):
 
 @router.get("/resolved")
 async def get_resolved_authorizations():
-    """Obtiene solicitudes resueltas: aprobadas, rechazadas y docs faltantes"""
+    """
+    Retorna el listado de solicitudes procesadas de forma segura,
+    previniendo errores de serialización por registros antiguos mal formateados.
+    """
     try:
-        import asyncio
-        results = await asyncio.gather(
-            notion_service.query_authorizations_by_status("Aprobado"),
-            notion_service.query_authorizations_by_status("Rechazado"),
-            notion_service.query_authorizations_by_status("Documentos Faltantes"),
-        )
-
-        solicitudes = []
-        for pages in results:
-            for page in pages:
+        # 1. Obtener las páginas de Notion
+        paginas = await notion_service.get_resolved_authorizations() 
+        solicitudes_procesadas = []
+        
+        for page in paginas:
+            try:
+                # 2. Parsear cada página de forma segura
                 solicitud = notion_service.parse_notion_page_to_solicitud(page)
-                if solicitud:
-                    data = solicitud.model_dump()
-                    if solicitud.numero_poliza:
+                if not solicitud:
+                    continue
+                
+                solicitud_dict = solicitud.model_dump()
+                
+                # 3. CONTROL: Validar y normalizar decision_ia
+                decision = solicitud_dict.get("decision_ia")
+                if isinstance(decision, str):
+                    try:
+                        solicitud_dict["decision_ia"] = json.loads(decision)
+                    except json.JSONDecodeError:
+                        solicitud_dict["decision_ia"] = {
+                            "aprobado": False,
+                            "razonamiento": decision,
+                            "score_confianza": 0,
+                            "clausulas_relevantes": [],
+                            "documentos_faltantes": ["Revisión requerida"]
+                        }
+                
+                # 4. Buscar y adjuntar datos de la póliza si existe
+                if solicitud.numero_poliza:
+                    try:
                         poliza_page = await notion_service.get_policy_by_number(solicitud.numero_poliza)
                         if poliza_page:
                             poliza = notion_service.parse_notion_page_to_poliza(poliza_page)
-                            data["poliza"] = poliza.model_dump() if poliza else None
+                            if poliza:
+                                solicitud_dict["poliza"] = poliza.model_dump()
+                            else:
+                                solicitud_dict["poliza"] = None
                         else:
-                            data["poliza"] = None
-                    solicitudes.append(data)
-
-        solicitudes.sort(key=lambda x: x.get("fecha_respuesta") or "", reverse=True)
-
-        return {"count": len(solicitudes), "solicitudes": solicitudes}
+                            solicitud_dict["poliza"] = None
+                    except Exception as e:
+                        print(f"[WARN] Error obteniendo póliza {solicitud.numero_poliza}: {e}")
+                        solicitud_dict["poliza"] = None
+                else:
+                    solicitud_dict["poliza"] = None
+                
+                solicitudes_procesadas.append(solicitud_dict)
+                
+            except Exception as e:
+                print(f"[WARN] Saltando fila corrupta en Notion: {e}")
+                continue
+                
+        return {
+            "solicitudes": solicitudes_procesadas,
+            "count": len(solicitudes_procesadas)
+        }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[CRITICAL ERROR] Error en GET /resolved: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )        
 
 @router.get("/{page_id}")
 async def get_authorization_details(page_id: str):
