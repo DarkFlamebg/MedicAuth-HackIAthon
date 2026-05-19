@@ -6,7 +6,7 @@ import PolizaSeguro from "../components/forms/PolizaSeguro.astro";
 import Header from "../components/Header.astro";
 import Layout from "../layouts/Layout.astro";
 
-import { Stethoscope } from "@lucide/astro";
+import { Stethoscope, CheckCircle } from "@lucide/astro";
 ---
 
 <Layout>
@@ -43,6 +43,30 @@ import { Stethoscope } from "@lucide/astro";
 			>
 		</div>
 	</form>
+
+	<!-- Modal de Éxito -->
+	<div id="success-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm opacity-0 invisible transition-all duration-300">
+		<div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform scale-95 transition-all duration-300" id="modal-content">
+			<!-- Contenido del Modal -->
+			<div class="p-8 text-center">
+				<div class="bg-green-100 rounded-full p-4 w-20 h-20 mx-auto mb-6 flex items-center justify-center">
+					<CheckCircle size={48} class="text-green-600" />
+				</div>
+				<h2 class="text-3xl font-bold text-gray-800 mb-3">¡Solicitud Enviada!</h2>
+				<p class="text-gray-600 text-lg">Tu solicitud ha sido enviada correctamente.</p>
+			</div>
+
+			<!-- Footer del Modal -->
+			<div class="p-6 border-t flex gap-3">
+				<button id="new-request-btn" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-6 py-3 rounded-lg transition-colors">
+					Nueva Solicitud
+				</button>
+				<button id="close-modal-btn-2" class="flex-1 bg-blue-500 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors">
+					Cerrar
+				</button>
+			</div>
+		</div>
+	</div>
 </Layout>
 
 <script>
@@ -54,6 +78,55 @@ import { Stethoscope } from "@lucide/astro";
 
 	const API = "https://medicauth-hackiathon.onrender.com";
 
+	// ── Elementos del Modal ─────────────────────────────────────────
+	const modal = document.getElementById("success-modal") as HTMLDivElement;
+	const modalContent = document.getElementById("modal-content") as HTMLDivElement;
+	const closeModalBtn2 = document.getElementById("close-modal-btn-2") as HTMLButtonElement;
+	const newRequestBtn = document.getElementById("new-request-btn") as HTMLButtonElement;
+
+	// ── Funciones del Modal ─────────────────────────────────────────
+	function openModal() {
+		modal.classList.remove("opacity-0", "invisible");
+		modal.classList.add("opacity-100", "visible");
+		modalContent.classList.remove("scale-95");
+		modalContent.classList.add("scale-100");
+		document.body.style.overflow = "hidden";
+	}
+
+	function closeModal() {
+		modal.classList.add("opacity-0", "invisible");
+		modal.classList.remove("opacity-100", "visible");
+		modalContent.classList.add("scale-95");
+		modalContent.classList.remove("scale-100");
+		document.body.style.overflow = "auto";
+	}
+
+	// ── Event Listeners del Modal ───────────────────────────────────
+	closeModalBtn2.addEventListener("click", closeModal);
+	newRequestBtn.addEventListener("click", () => {
+		closeModal();
+		form.reset();
+		document.querySelectorAll('[id^="filename-"]').forEach((el) => {
+			el.textContent = "";
+			el.classList.add("hidden");
+		});
+	});
+
+	// Cerrar al hacer click fuera del modal
+	modal.addEventListener("click", (e) => {
+		if (e.target === modal) {
+			closeModal();
+		}
+	});
+
+	// Cerrar con tecla Escape
+	document.addEventListener("keydown", (e) => {
+		if (e.key === "Escape" && modal.classList.contains("visible")) {
+			closeModal();
+		}
+	});
+
+	// ── Funciones del Formulario ────────────────────────────────────
 	async function subirPDF(file: File): Promise<string> {
 		const pdfFormData = new FormData();
 		pdfFormData.append("file", file);
@@ -151,15 +224,8 @@ import { Stethoscope } from "@lucide/astro";
 			const result = await createRes.json();
 			console.log("[OK] Solicitud creada:", result);
 
-			let msg = `Solicitud enviada correctamente\n\nID: ${result.page_id}\nInforme: ${informeUrl}`;
-			if (polizaUrl) msg += `\nPóliza PDF: ${polizaUrl}`;
-			alert(msg);
-
-			form.reset();
-			document.querySelectorAll('[id^="filename-"]').forEach((el) => {
-				el.textContent = "";
-				el.classList.add("hidden");
-			});
+			// ── Mostrar Modal en lugar de alert ────────────────────────
+			openModal();
 
 		} catch (error) {
 			console.error("[ERROR]", error);

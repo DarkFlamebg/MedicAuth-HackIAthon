@@ -1,5 +1,31 @@
-<div class="flex gap-4 items-center justify-center font-semibold text-xl">
-    <a href="/">Autorizacion</a>
-    <a href="/pendientes">Pendientes</a>
-    <a href="/solicitudes">Solicitudes</a>
-</div>
+---
+const path = Astro.url.pathname;
+
+const links = [
+    {href: '/', label: 'Inicio'},
+    {href: '/pendientes', label: 'Pendientes'},
+    {href: '/solicitudes', label: 'Solicitudes'}
+]
+---
+
+<header>
+    <nav class="flex flex-wrap justify-center gap-6 font-semibold text-lg text-white mt-6 md:mt-0" >
+        {
+            links.map((link) => {
+                const isActive = path === link.href;
+
+                return (
+                    <a 
+                        href={link.href}
+                        class={`relative group transition-colors duration-300 
+                            ${isActive ? "text-white" : "hover:text-blue-300"}`}
+                    >
+                        {link.label}
+                        <span class={`absolute -bottom-1 left-0 h-0.5 bg-blue-400 transition-all duration-300 
+                            ${isActive ? "w-full" : "w-0 group-hover:w-full"}`}/>
+                    </a>
+                )
+            })
+        }
+    </nav>
+</header>
