@@ -1,5 +1,5 @@
 """
-SurgeryAuth AI - Backend
+MedicAuth AI - Backend
 Agente Inteligente de Pre-Autorización Quirúrgica en Tiempo Real
 """
 
@@ -15,7 +15,7 @@ from app.api.routes import webhook, authorization, health
 async def lifespan(app: FastAPI):
     """Eventos de inicio y cierre de la aplicación"""
     # Startup
-    print("Iniciando SurgeryAuth AI...")
+    print("Iniciando MedicAuth AI...")
     print(f"Notion DB Solicitudes: {settings.NOTION_SOLICITUDES_DB_ID[:8]}...")
     print(f"Notion DB Pólizas: {settings.NOTION_POLIZAS_DB_ID[:8]}...")
 
@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     print("Cerrando SurgeryAuth AI...")
 
 app = FastAPI(
-    title="SurgeryAuth AI API",
+    title="MedicAuth AI API",
     description="API para autorización quirúrgica inteligente",
     version="1.0.0",
     lifespan=lifespan
@@ -59,7 +59,7 @@ app.include_router(authorization.router, prefix="/api/authorization", tags=["Aut
 @app.get("/")
 async def root():
     return {
-        "message": "SurgeryAuth AI - API activa",
+        "message": "MedicAuth AI - API activa",
         "version": "1.0.0",
         "docs": "/docs"
     }

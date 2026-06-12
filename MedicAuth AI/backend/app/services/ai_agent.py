@@ -13,7 +13,7 @@ class AIAgent:
     ) -> DecisionIA:
         """
         Punto de entrada asíncrono que ejecuta la arquitectura multi-agente reflectiva
-        leyendo el informe directamente desde la URL de Cloudinary almacenada.
+        de MedicAuth AI leyendo el informe directamente desde la URL de Cloudinary almacenada.
         """
         print(f"\n [INICIANDO AUDITORÍA EN GRAFO] Solicitud ID: {solicitud.id_solicitud}")
         start_time = time.time()

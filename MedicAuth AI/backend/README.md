@@ -128,6 +128,8 @@ CLOUDINARY_API_SECRET=yourCloudinaryApiSecret
 
 ```
 
+> Copia este archivo como `.env` y completa tus credenciales antes de ejecutar la aplicación.
+
 ### 2. Instalación de Dependencias
 
 ```bash

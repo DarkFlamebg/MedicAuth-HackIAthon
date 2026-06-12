@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     """Configuración global de la aplicación"""
     
     # API Settings
-    PROJECT_NAME: str = "SurgeryAuth AI"
+    PROJECT_NAME: str = "MedicAuth AI"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api"
     
